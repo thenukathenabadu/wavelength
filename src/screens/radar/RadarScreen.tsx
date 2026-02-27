@@ -1,100 +1,226 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { useBroadcasterList, useNearbyStore } from '../../store/nearbySlice';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Animated,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNearbyStore } from '../../store/nearbySlice';
 import BroadcasterCard from '../../components/ui/BroadcasterCard';
+import { colors, typography, spacing, radius } from '../../theme';
+import { MOCK_BROADCASTERS } from '../../dev/mockData';
+import type { Broadcaster } from '../../types';
 
 // Evict broadcasters not seen for 30 seconds
 const STALE_TTL_MS = 30_000;
 
-export default function RadarScreen() {
-  const broadcasters = useBroadcasterList();
+interface Props {
+  onSelectBroadcaster?: (broadcaster: Broadcaster) => void;
+}
+
+export default function RadarScreen({ onSelectBroadcaster }: Props) {
   const evictStale = useNearbyStore((s) => s.evictStale);
 
-  // Periodic eviction of stale broadcasters
-  const evictIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Phase 1: use mock data directly; Phase 5+ will use the real store
+  const broadcasters = MOCK_BROADCASTERS;
+
+  // Pulse animation for the live indicator
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
-    evictIntervalRef.current = setInterval(() => {
-      evictStale(STALE_TTL_MS);
-    }, 10_000);
-    return () => {
-      if (evictIntervalRef.current) clearInterval(evictIntervalRef.current);
-    };
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.4, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, []);
+
+  // Stale eviction
+  useEffect(() => {
+    const timer = setInterval(() => evictStale(STALE_TTL_MS), 10_000);
+    return () => clearInterval(timer);
   }, [evictStale]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Nearby</Text>
-      <Text style={styles.subheader}>
-        {broadcasters.length === 0
-          ? 'No one broadcasting nearby'
-          : `${broadcasters.length} broadcasting`}
-      </Text>
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>Radar</Text>
+          <View style={styles.liveRow}>
+            <Animated.View style={[styles.livePulse, { transform: [{ scale: pulseAnim }] }]} />
+            <View style={styles.liveDot} />
+            <Text style={styles.liveCount}>
+              {broadcasters.length} nearby
+            </Text>
+          </View>
+        </View>
+        {/* TODO Phase 10: map/list toggle button */}
+        <TouchableOpacity style={styles.filterButton}>
+          <Text style={styles.filterButtonText}>Filter</Text>
+        </TouchableOpacity>
+      </View>
 
-      {/* TODO (Phase 2): Map toggle — react-native-maps */}
+      {/* Source legend */}
+      <View style={styles.legend}>
+        {[
+          { label: 'BLE', color: colors.source.ble, desc: 'Bluetooth' },
+          { label: 'WiFi', color: colors.source.mdns, desc: 'Same network' },
+          { label: 'GPS', color: colors.source.gps, desc: 'Cloud' },
+        ].map((s) => (
+          <View key={s.label} style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: s.color }]} />
+            <Text style={styles.legendText}>{s.desc}</Text>
+          </View>
+        ))}
+      </View>
 
       <FlatList
         data={broadcasters}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <BroadcasterCard broadcaster={item} />}
+        renderItem={({ item }) => (
+          <BroadcasterCard
+            broadcaster={item}
+            onPress={() => onSelectBroadcaster?.(item)}
+          />
+        )}
         contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={<EmptyState />}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
 function EmptyState() {
   return (
-    <View style={styles.emptyContainer}>
+    <View style={styles.empty}>
       <Text style={styles.emptyTitle}>All quiet here</Text>
       <Text style={styles.emptyBody}>
-        Start broadcasting to let others know what you're listening to.
+        No one broadcasting nearby. Start broadcasting to let others tune in.
       </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    paddingTop: 16,
+    backgroundColor: colors.bg.primary,
   },
+
+  // Header
   header: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#ffffff',
-    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing[5],
+    paddingTop: spacing[4],
+    paddingBottom: spacing[3],
   },
-  subheader: {
-    fontSize: 13,
-    color: '#666',
-    paddingHorizontal: 20,
-    marginTop: 4,
-    marginBottom: 16,
+  headerLeft: {
+    gap: spacing[1],
   },
+  title: {
+    fontSize: typography.size['2xl'],
+    fontWeight: typography.weight.black,
+    color: colors.text.primary,
+    letterSpacing: -0.5,
+  },
+  liveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+  },
+  livePulse: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: radius.full,
+    backgroundColor: `${colors.status.live}55`,
+    left: -1,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.status.live,
+    marginLeft: 1,
+  },
+  liveCount: {
+    fontSize: typography.size.sm,
+    fontWeight: typography.weight.medium,
+    color: colors.text.secondary,
+    marginLeft: spacing[1],
+  },
+  filterButton: {
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    marginTop: spacing[1],
+  },
+  filterButtonText: {
+    fontSize: typography.size.sm,
+    fontWeight: typography.weight.medium,
+    color: colors.text.secondary,
+  },
+
+  // Legend
+  legend: {
+    flexDirection: 'row',
+    gap: spacing[4],
+    paddingHorizontal: spacing[5],
+    paddingBottom: spacing[3],
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  legendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: radius.full,
+  },
+  legendText: {
+    fontSize: typography.size.xs,
+    color: colors.text.muted,
+  },
+
+  // List
   list: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[8],
     flexGrow: 1,
   },
-  emptyContainer: {
+
+  // Empty
+  empty: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 80,
-    paddingHorizontal: 32,
+    paddingTop: spacing[20],
+    paddingHorizontal: spacing[8],
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#ffffff',
-    marginBottom: 8,
+    fontSize: typography.size.lg,
+    fontWeight: typography.weight.bold,
+    color: colors.text.primary,
+    marginBottom: spacing[2],
+    textAlign: 'center',
   },
   emptyBody: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: typography.size.base,
+    color: colors.text.muted,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: typography.size.base * 1.5,
   },
 });
