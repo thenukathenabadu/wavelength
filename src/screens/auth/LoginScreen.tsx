@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../types';
+import { signIn, friendlyAuthError } from '../../services/firebase/authService';
 import { colors, typography, spacing, radius } from '../../theme';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -32,11 +33,11 @@ export default function LoginScreen({ navigation }: Props) {
     setError(null);
     setLoading(true);
     try {
-      // TODO Phase 2: Firebase Auth — signInWithEmailAndPassword(auth, email, password)
-      await new Promise((r) => setTimeout(r, 1000)); // placeholder delay
-      throw new Error('Firebase not yet configured — coming in Phase 2');
+      await signIn(email.trim(), password);
+      // RootNavigator's onAuthStateChanged fires automatically — no manual navigation needed
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Sign in failed. Try again.');
+      const code = (e as { code?: string }).code ?? '';
+      setError(friendlyAuthError(code));
     } finally {
       setLoading(false);
     }
@@ -112,13 +113,13 @@ export default function LoginScreen({ navigation }: Props) {
             )}
           </TouchableOpacity>
 
-          {/* TODO Phase 2: Google OAuth button */}
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>or</Text>
             <View style={styles.dividerLine} />
           </View>
 
+          {/* TODO Phase 2.3: Google OAuth */}
           <TouchableOpacity style={styles.googleButton} activeOpacity={0.8}>
             <Text style={styles.googleButtonText}>Continue with Google</Text>
           </TouchableOpacity>
@@ -177,7 +178,6 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: typography.size.sm,
     color: colors.status.error,
-    lineHeight: typography.size.sm * 1.5,
   },
   fieldGroup: {
     gap: spacing[2],

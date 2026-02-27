@@ -1,31 +1,41 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileStackParamList } from '../../types';
+import { signOut } from '../../services/firebase/authService';
+import { useCurrentUser } from '../../store/authSlice';
 import { colors, typography, spacing, radius } from '../../theme';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ProfileScreen'>;
 
-// Mock user — Phase 2 will replace with Firebase Auth user
-const MOCK_USER = {
-  displayName: 'Asiri T.',
-  email: 'asiri@example.com',
-  joinedMonth: 'February 2026',
-  stats: {
-    broadcasts: 47,
-    discoveries: 183,
-    daysActive: 12,
-  },
-};
-
 export default function ProfileScreen({ navigation }: Props) {
+  const user = useCurrentUser();
+  const [signingOut, setSigningOut] = useState(false);
+
+  const displayName = user?.displayName ?? 'Anonymous';
+  const email = user?.email ?? '';
+  const initial = displayName[0]?.toUpperCase() ?? '?';
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await signOut();
+      // RootNavigator's onAuthStateChanged handles the redirect automatically
+    } catch {
+      Alert.alert('Error', 'Could not sign out. Try again.');
+      setSigningOut(false);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -42,22 +52,19 @@ export default function ProfileScreen({ navigation }: Props) {
         {/* Avatar + identity */}
         <View style={styles.identity}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarInitial}>
-              {MOCK_USER.displayName[0]}
-            </Text>
+            <Text style={styles.avatarInitial}>{initial}</Text>
           </View>
-          <Text style={styles.displayName}>{MOCK_USER.displayName}</Text>
-          <Text style={styles.email}>{MOCK_USER.email}</Text>
-          <Text style={styles.joined}>Member since {MOCK_USER.joinedMonth}</Text>
+          <Text style={styles.displayName}>{displayName}</Text>
+          <Text style={styles.email}>{email}</Text>
         </View>
 
-        {/* Stats row */}
+        {/* Stats row — Phase 9 will populate from real data */}
         <View style={styles.statsRow}>
-          <StatCell value={MOCK_USER.stats.broadcasts} label="Broadcasts" />
+          <StatCell value={0} label="Broadcasts" />
           <View style={styles.statDivider} />
-          <StatCell value={MOCK_USER.stats.discoveries} label="Discovered" />
+          <StatCell value={0} label="Discovered" />
           <View style={styles.statDivider} />
-          <StatCell value={MOCK_USER.stats.daysActive} label="Days Active" />
+          <StatCell value={0} label="Days Active" />
         </View>
 
         {/* Menu items */}
@@ -81,7 +88,12 @@ export default function ProfileScreen({ navigation }: Props) {
 
         <View style={styles.section}>
           <View style={styles.menuCard}>
-            <MenuItem label="Sign Out" onPress={() => {}} destructive last />
+            <MenuItem
+              label={signingOut ? 'Signing out…' : 'Sign Out'}
+              onPress={handleSignOut}
+              destructive
+              last
+            />
           </View>
         </View>
 

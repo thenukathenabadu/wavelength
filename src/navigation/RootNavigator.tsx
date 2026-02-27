@@ -1,25 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import { subscribeToAuthState } from '../services/firebase/authService';
+import { useAuthStore, useAuthLoading, useIsAuthenticated } from '../store/authSlice';
 import AuthNavigator from './AuthNavigator';
 import MainTabNavigator from './MainTabNavigator';
+import { colors } from '../theme';
 
-/**
- * RootNavigator — switches between Auth and Main stacks based on auth state.
- *
- * TODO (Week 1–2): Replace the hardcoded `isAuthenticated` with a Firebase
- * onAuthStateChanged listener from the auth service module.
- */
 export default function RootNavigator() {
-  // Placeholder auth state — will be replaced by Firebase listener
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const setUser = useAuthStore((s) => s.setUser);
+  const loading = useAuthLoading();
+  const isAuthenticated = useIsAuthenticated();
 
   useEffect(() => {
-    // TODO (Week 1–2): wire up Firebase Auth
-    // const unsubscribe = onAuthStateChanged(auth, (user) => {
-    //   setIsAuthenticated(!!user);
-    // });
-    // return unsubscribe;
-  }, []);
+    // Subscribe to Firebase auth state — fires immediately with the current user
+    const unsubscribe = subscribeToAuthState((user) => {
+      setUser(user);
+    });
+    return unsubscribe;
+  }, [setUser]);
+
+  // Splash-style loading state while Firebase resolves the session
+  if (loading) {
+    return (
+      <View style={styles.splash}>
+        <ActivityIndicator color={colors.brand.default} size="large" />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer>
@@ -27,3 +35,12 @@ export default function RootNavigator() {
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  splash: {
+    flex: 1,
+    backgroundColor: colors.bg.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

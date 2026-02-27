@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../types';
+import { signUp, friendlyAuthError } from '../../services/firebase/authService';
 import { colors, typography, spacing, radius } from '../../theme';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
@@ -29,15 +30,15 @@ export default function RegisterScreen({ navigation }: Props) {
   async function handleRegister() {
     if (!displayName.trim()) { setError('Enter a display name.'); return; }
     if (!email.trim()) { setError('Enter your email.'); return; }
-    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     setError(null);
     setLoading(true);
     try {
-      // TODO Phase 2: Firebase Auth — createUserWithEmailAndPassword + updateProfile
-      await new Promise((r) => setTimeout(r, 1000));
-      throw new Error('Firebase not yet configured — coming in Phase 2');
+      await signUp(displayName.trim(), email.trim(), password);
+      // RootNavigator's onAuthStateChanged fires automatically — no manual navigation needed
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Registration failed. Try again.');
+      const code = (e as { code?: string }).code ?? '';
+      setError(friendlyAuthError(code));
     } finally {
       setLoading(false);
     }
@@ -106,7 +107,7 @@ export default function RegisterScreen({ navigation }: Props) {
             <TextInput
               ref={passwordRef}
               style={styles.input}
-              placeholder="At least 8 characters"
+              placeholder="At least 6 characters"
               placeholderTextColor={colors.text.muted}
               value={password}
               onChangeText={setPassword}
@@ -214,7 +215,6 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: typography.size.xs,
     color: colors.text.muted,
-    lineHeight: typography.size.xs * 1.5,
   },
   input: {
     backgroundColor: colors.bg.input,
