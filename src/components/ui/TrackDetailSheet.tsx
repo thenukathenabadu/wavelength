@@ -309,7 +309,6 @@ const styles = StyleSheet.create({
   progressTime: {
     fontSize: typography.size.sm,
     color: colors.text.muted,
-    fontVariant: ['tabular-nums'],
   },
 
   // CTA

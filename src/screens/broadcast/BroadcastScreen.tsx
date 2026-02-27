@@ -377,7 +377,6 @@ const styles = StyleSheet.create({
   timingText: {
     fontSize: typography.size.xs,
     color: colors.text.muted,
-    fontVariant: ['tabular-nums'],
   },
 
   // Notice

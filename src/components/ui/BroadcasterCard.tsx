@@ -227,7 +227,6 @@ const styles = StyleSheet.create({
   timing: {
     fontSize: typography.size.xs,
     color: colors.text.muted,
-    fontVariant: ['tabular-nums'],
   },
 
   // Footer
