@@ -200,5 +200,6 @@ Push to GitHub at the end of every feature with a descriptive commit.
 | Phase | Status |
 |---|---|
 | Phase 0 — Foundation | ✅ Complete |
-| Phase 1 — UI Shell | 🔄 In progress |
-| Phase 2+ | Pending |
+| Phase 1 — UI Shell | ✅ Complete |
+| Phase 2 — Authentication | 🔄 Next |
+| Phase 3+ | Pending |
