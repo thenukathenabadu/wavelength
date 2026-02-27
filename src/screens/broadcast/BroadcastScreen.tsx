@@ -1,136 +1,394 @@
-import React from 'react';
-import { View, Text, Switch, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  Switch,
+  Image,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBroadcastStore, useIsBroadcasting } from '../../store/broadcastSlice';
+import ProgressBar from '../../components/ui/ProgressBar';
+import { formatDuration, currentPosition } from '../../utils/playbackMath';
+import { colors, typography, spacing, radius, shadows } from '../../theme';
+import { MOCK_CURRENT_TRACK, MOCK_CURRENT_SYNC } from '../../dev/mockData';
+
+const APP_COLOR: Record<string, string> = {
+  spotify: colors.app.spotify,
+  apple_music: colors.app.apple_music,
+  youtube_music: colors.app.youtube_music,
+  podcasts: colors.app.podcasts,
+  unknown: colors.text.muted,
+};
+
+const APP_LABEL: Record<string, string> = {
+  spotify: 'Spotify',
+  apple_music: 'Apple Music',
+  youtube_music: 'YouTube Music',
+  podcasts: 'Podcasts',
+  unknown: 'Unknown app',
+};
 
 export default function BroadcastScreen() {
-  const { mode, currentTrack, setMode } = useBroadcastStore();
+  const { mode, setMode } = useBroadcastStore();
   const isBroadcasting = useIsBroadcasting();
 
-  function toggleBroadcast(value: boolean) {
-    if (!value) {
-      setMode('off');
-    } else {
-      setMode('named');
-    }
-  }
+  // Phase 1: use mock track — Phase 3/4 will replace with NowPlayingModule
+  const track = MOCK_CURRENT_TRACK;
+  const sync = MOCK_CURRENT_SYNC;
 
-  function toggleAnonymous() {
-    setMode(mode === 'named' ? 'anonymous' : 'named');
-  }
+  const appColor = APP_COLOR[track.sourceApp] ?? colors.text.muted;
+  const position = currentPosition(sync);
+
+  // Broadcast ring animation
+  const ringAnim = useRef(new Animated.Value(0)).current;
+  const ringOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!isBroadcasting) {
+      ringAnim.setValue(0);
+      ringOpacity.setValue(0);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.parallel([
+        Animated.timing(ringAnim, { toValue: 1, duration: 2000, useNativeDriver: true }),
+        Animated.sequence([
+          Animated.timing(ringOpacity, { toValue: 0.5, duration: 500, useNativeDriver: true }),
+          Animated.timing(ringOpacity, { toValue: 0, duration: 1500, useNativeDriver: true }),
+        ]),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [isBroadcasting]);
+
+  const ringScale = ringAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] });
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Broadcast</Text>
-
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <View>
-            <Text style={styles.label}>Broadcasting</Text>
-            <Text style={styles.sublabel}>
-              {isBroadcasting ? 'Others can see your track' : 'You are invisible'}
-            </Text>
-          </View>
-          <Switch
-            value={isBroadcasting}
-            onValueChange={toggleBroadcast}
-            trackColor={{ false: '#333', true: '#6c47ff' }}
-            thumbColor="#ffffff"
-          />
-        </View>
+    <SafeAreaView style={styles.root} edges={['top']}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Broadcasting</Text>
+        <Text style={styles.subtitle}>
+          {isBroadcasting ? 'Your track is visible to nearby listeners' : 'You are invisible'}
+        </Text>
       </View>
 
-      {isBroadcasting && (
-        <View style={styles.card}>
-          <View style={styles.row}>
-            <View>
-              <Text style={styles.label}>Anonymous mode</Text>
-              <Text style={styles.sublabel}>
-                {mode === 'anonymous' ? 'Name hidden from others' : 'Showing your name'}
+      {/* Main toggle card */}
+      <View style={styles.toggleCard}>
+        <View style={styles.toggleCardTop}>
+          {/* Animated ring behind the toggle label */}
+          <View style={styles.ringContainer}>
+            {isBroadcasting && (
+              <Animated.View
+                style={[
+                  styles.ring,
+                  { transform: [{ scale: ringScale }], opacity: ringOpacity },
+                ]}
+              />
+            )}
+            <View style={[styles.statusDot, isBroadcasting && styles.statusDotActive]} />
+          </View>
+
+          <View style={styles.toggleLabels}>
+            <Text style={styles.toggleLabel}>
+              {isBroadcasting ? 'Broadcasting ON' : 'Broadcasting OFF'}
+            </Text>
+            <Text style={styles.toggleSublabel}>
+              {isBroadcasting
+                ? 'Others nearby can see what you\'re listening to'
+                : 'Turn on to share your listening with the world'}
+            </Text>
+          </View>
+
+          <Switch
+            value={isBroadcasting}
+            onValueChange={(v) => setMode(v ? 'named' : 'off')}
+            trackColor={{ false: colors.border.strong, true: colors.brand.default }}
+            thumbColor={colors.text.primary}
+            ios_backgroundColor={colors.border.strong}
+          />
+        </View>
+
+        {/* Anonymous toggle — only shown when broadcasting */}
+        {isBroadcasting && (
+          <View style={styles.anonRow}>
+            <View style={styles.anonLeft}>
+              <Text style={styles.anonLabel}>Anonymous mode</Text>
+              <Text style={styles.anonSub}>
+                {mode === 'anonymous' ? 'Your name is hidden' : 'Sharing your display name'}
               </Text>
             </View>
             <Switch
               value={mode === 'anonymous'}
-              onValueChange={toggleAnonymous}
-              trackColor={{ false: '#333', true: '#6c47ff' }}
-              thumbColor="#ffffff"
+              onValueChange={(v) => setMode(v ? 'anonymous' : 'named')}
+              trackColor={{ false: colors.border.strong, true: colors.brand.default }}
+              thumbColor={colors.text.primary}
+              ios_backgroundColor={colors.border.strong}
             />
           </View>
-        </View>
-      )}
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Now Playing</Text>
-        {currentTrack ? (
-          <View style={styles.trackInfo}>
-            <Text style={styles.trackName}>{currentTrack.trackName}</Text>
-            <Text style={styles.artistName}>{currentTrack.artistName}</Text>
-            <Text style={styles.sourceApp}>{currentTrack.sourceApp}</Text>
-          </View>
-        ) : (
-          <Text style={styles.sublabel}>
-            {/* TODO (Week 2–4): NowPlayingModule will populate this automatically */}
-            No track detected. Play music on your device.
-          </Text>
         )}
       </View>
-    </View>
+
+      {/* Current track card */}
+      <View style={styles.sectionLabel}>
+        <Text style={styles.sectionTitle}>Now Playing</Text>
+        <View style={[styles.appPill, { borderColor: `${appColor}44` }]}>
+          <View style={[styles.appDot, { backgroundColor: appColor }]} />
+          <Text style={[styles.appPillText, { color: appColor }]}>
+            {APP_LABEL[track.sourceApp]}
+          </Text>
+        </View>
+      </View>
+
+      <View style={[styles.trackCard, isBroadcasting && { borderColor: `${appColor}33` }]}>
+        <View style={styles.trackTop}>
+          <View style={styles.trackArtWrapper}>
+            {track.albumArtUrl ? (
+              <Image
+                source={{ uri: track.albumArtUrl }}
+                style={styles.trackArt}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[styles.trackArtPlaceholder, { backgroundColor: `${appColor}22` }]} />
+            )}
+          </View>
+
+          <View style={styles.trackMeta}>
+            <Text style={styles.trackName} numberOfLines={2}>
+              {track.trackName}
+            </Text>
+            <Text style={styles.trackArtist} numberOfLines={1}>
+              {track.artistName}
+            </Text>
+            {track.albumName && (
+              <Text style={styles.trackAlbum} numberOfLines={1}>
+                {track.albumName}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.trackProgress}>
+          <ProgressBar sync={sync} totalDuration={track.totalDuration} height={3} fillColor={appColor} />
+          <View style={styles.trackTiming}>
+            <Text style={styles.timingText}>{formatDuration(position)}</Text>
+            <Text style={styles.timingText}>{formatDuration(track.totalDuration)}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Phase 3 notice */}
+      <View style={styles.notice}>
+        <Text style={styles.noticeText}>
+          Track detection is automatic on device.{'\n'}
+          Android reads any app · iOS reads Spotify + Apple Music.
+        </Text>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    padding: 20,
+    backgroundColor: colors.bg.primary,
+    paddingHorizontal: spacing[5],
   },
+
   header: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#ffffff',
-    marginBottom: 24,
-    marginTop: 8,
+    paddingTop: spacing[4],
+    paddingBottom: spacing[6],
+    gap: spacing[1],
   },
-  card: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 12,
+  title: {
+    fontSize: typography.size['2xl'],
+    fontWeight: typography.weight.black,
+    color: colors.text.primary,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: typography.size.sm,
+    color: colors.text.muted,
+  },
+
+  // Toggle card
+  toggleCard: {
+    backgroundColor: colors.bg.card,
+    borderRadius: radius.xl,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
+    borderColor: colors.border.default,
+    marginBottom: spacing[5],
+    overflow: 'hidden',
   },
-  row: {
+  toggleCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    padding: spacing[4],
+  },
+  ringContainer: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ring: {
+    position: 'absolute',
+    width: 14,
+    height: 14,
+    borderRadius: radius.full,
+    borderWidth: 1.5,
+    borderColor: colors.brand.default,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: radius.full,
+    backgroundColor: colors.border.strong,
+  },
+  statusDotActive: {
+    backgroundColor: colors.brand.default,
+    ...shadows.brand,
+  },
+  toggleLabels: {
+    flex: 1,
+    gap: 2,
+  },
+  toggleLabel: {
+    fontSize: typography.size.base,
+    fontWeight: typography.weight.bold,
+    color: colors.text.primary,
+  },
+  toggleSublabel: {
+    fontSize: typography.size.xs,
+    color: colors.text.muted,
+    lineHeight: typography.size.xs * 1.5,
+  },
+  anonRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    borderTopWidth: 1,
+    borderTopColor: colors.border.subtle,
+    gap: spacing[3],
   },
-  label: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#ffffff',
-    marginBottom: 2,
+  anonLeft: {
+    flex: 1,
+    gap: 2,
   },
-  sublabel: {
-    fontSize: 13,
-    color: '#666',
-    maxWidth: '80%',
+  anonLabel: {
+    fontSize: typography.size.sm,
+    fontWeight: typography.weight.semibold,
+    color: colors.text.primary,
   },
-  trackInfo: {
-    marginTop: 12,
+  anonSub: {
+    fontSize: typography.size.xs,
+    color: colors.text.muted,
+  },
+
+  // Section label
+  sectionLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing[3],
+  },
+  sectionTitle: {
+    fontSize: typography.size.base,
+    fontWeight: typography.weight.bold,
+    color: colors.text.primary,
+  },
+  appPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  appDot: {
+    width: 6,
+    height: 6,
+    borderRadius: radius.full,
+  },
+  appPillText: {
+    fontSize: typography.size.xs,
+    fontWeight: typography.weight.semibold,
+  },
+
+  // Track card
+  trackCard: {
+    backgroundColor: colors.bg.card,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    padding: spacing[4],
+    gap: spacing[4],
+  },
+  trackTop: {
+    flexDirection: 'row',
+    gap: spacing[3],
+    alignItems: 'center',
+  },
+  trackArtWrapper: {},
+  trackArt: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg.cardElevated,
+  },
+  trackArtPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.md,
+  },
+  trackMeta: {
+    flex: 1,
+    gap: spacing[1],
   },
   trackName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ffffff',
-    marginBottom: 2,
+    fontSize: typography.size.base,
+    fontWeight: typography.weight.bold,
+    color: colors.text.primary,
+    letterSpacing: -0.2,
   },
-  artistName: {
-    fontSize: 14,
-    color: '#aaa',
-    marginBottom: 4,
+  trackArtist: {
+    fontSize: typography.size.sm,
+    color: colors.text.secondary,
   },
-  sourceApp: {
-    fontSize: 12,
-    color: '#6c47ff',
-    textTransform: 'capitalize',
+  trackAlbum: {
+    fontSize: typography.size.xs,
+    color: colors.text.muted,
+  },
+  trackProgress: {
+    gap: spacing[1],
+  },
+  trackTiming: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  timingText: {
+    fontSize: typography.size.xs,
+    color: colors.text.muted,
+    fontVariant: ['tabular-nums'],
+  },
+
+  // Notice
+  notice: {
+    marginTop: spacing[5],
+    paddingHorizontal: spacing[2],
+  },
+  noticeText: {
+    fontSize: typography.size.xs,
+    color: colors.text.muted,
+    textAlign: 'center',
+    lineHeight: typography.size.xs * 1.6,
   },
 });
