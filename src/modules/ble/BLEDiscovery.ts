@@ -1,84 +1,137 @@
 /**
- * BLE Discovery module — Phase 1, Week 4–5
+ * BLEDiscovery — low-level BLE interface.
  *
- * Architecture:
- *   - Advertising: broadcast a custom service UUID + manufacturer data packet (~25 bytes)
- *   - Scanning: scan for the same service UUID, parse manufacturer data for quick preview
- *   - GATT on tap: connect to a specific peripheral, read full track JSON, disconnect
+ * Scanning: react-native-ble-plx (central role)
+ * Advertising + GATT server: native modules
+ *   Android → BLEAdvertiserModule (Kotlin)
+ *   iOS     → BLEPeripheralBridge (Swift)
  *
- * BLE Packet layout (manufacturer data, ~25 bytes):
- *   [0–3]   userId hash (4 bytes)
- *   [4–5]   flags: isPlaying(1b) + sourceApp(3b) + reserved(12b)
- *   [6–9]   startedAt (Unix seconds, 4 bytes)
- *   [10–11] positionAtStart (seconds, uint16)
- *   [12–24] trackName prefix (13 bytes, UTF-8 truncated)
+ * Service UUID:  A1B2C3D4-0001-0000-0000-000000000000
+ * Track char:    A1B2C3D4-0002-0000-0000-000000000000
  *
- * Service UUID: WVLN-0001-0000-0000-000000000000 (must be included for iOS background scanning)
- *
- * TODO (Week 4–5): Implement using react-native-ble-plx v3+
+ * GATT characteristic value: full broadcast JSON (UTF-8, base64 encoded by BLE layer)
  */
 
-import type { Broadcaster } from '../../types';
-import { useNearbyStore } from '../../store/nearbySlice';
+import { NativeModules, Platform } from 'react-native';
 
-// Placeholder — real implementation requires react-native-ble-plx
-// import { BleManager } from 'react-native-ble-plx';
+// ─── BLE-PLX (central / scanner) ─────────────────────────────────────────────
 
-export const WAVELENGTH_SERVICE_UUID = 'WVLN0001-0000-0000-0000-000000000000';
-export const WAVELENGTH_MANUFACTURER_ID = 0xFFFF; // Replace with registered ID for prod
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let bleManager: any = null;
 
-let scanning = false;
-
-export async function startBLEDiscovery(): Promise<void> {
-  if (scanning) return;
-  scanning = true;
-
-  console.log('[BLE] startBLEDiscovery — stub (implement with react-native-ble-plx in Week 4-5)');
-
-  // TODO:
-  // 1. const manager = new BleManager();
-  // 2. await manager.startDeviceScan([WAVELENGTH_SERVICE_UUID], null, onDeviceFound);
+try {
+  const { BleManager } = require('react-native-ble-plx');
+  bleManager = new BleManager();
+} catch {
+  // Not linked (web preview) — scanning disabled
 }
 
-export function stopBLEDiscovery(): void {
-  scanning = false;
-  console.log('[BLE] stopBLEDiscovery — stub');
-  // TODO: manager.stopDeviceScan();
+// ─── Native advertiser module (peripheral) ────────────────────────────────────
+
+const Advertiser = Platform.OS === 'android'
+  ? NativeModules.BLEAdvertiserModule ?? null
+  : NativeModules.BLEPeripheralBridge ?? null;
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SERVICE_UUID    = 'A1B2C3D4-0001-0000-0000-000000000000';
+const TRACK_CHAR_UUID = 'A1B2C3D4-0002-0000-0000-000000000000';
+
+/** Re-fetch interval per device — avoids hammering connections. */
+const FETCH_CACHE_TTL_MS = 25_000;
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+interface FetchCache { lastFetched: number; json: string; }
+const fetchCache = new Map<string, FetchCache>();
+const pendingConnections = new Set<string>();
+
+// ─── Advertising (peripheral role) ───────────────────────────────────────────
+
+export function startAdvertising(trackJson: string): void {
+  try { Advertiser?.startAdvertising(trackJson); } catch { /* BLE unavailable */ }
 }
 
-export async function startBLEAdvertising(_userId: string): Promise<void> {
-  console.log('[BLE] startBLEAdvertising — stub');
-  // TODO: Android: use react-native-ble-advertiser or custom native module
-  //       iOS: CBPeripheralManager — can advertise but not in background without entitlement
+export function updateBroadcastTrack(trackJson: string): void {
+  try { Advertiser?.updateTrackData(trackJson); } catch { /* BLE unavailable */ }
 }
 
-export function stopBLEAdvertising(): void {
-  console.log('[BLE] stopBLEAdvertising — stub');
+export function stopAdvertising(): void {
+  try { Advertiser?.stopAdvertising(); } catch { /* BLE unavailable */ }
 }
+
+// ─── Scanning (central role) ──────────────────────────────────────────────────
 
 /**
- * Called when a device is found during scan.
- * Parses manufacturer data for the quick preview and upserts into the nearby store.
+ * Scans for Wavelength devices.
+ * Calls onDeviceFound with the full parsed JSON packet whenever a new device
+ * is discovered (or re-discovered after its cache expires).
  */
-function _onDeviceFound(/* device: Device */) {
-  // TODO:
-  // 1. Parse manufacturer data from device.manufacturerData
-  // 2. Decode userId hash, flags, startedAt, positionAtStart, trackName prefix
-  // 3. Construct a partial Broadcaster and call useNearbyStore.getState().upsertBroadcaster(...)
-  // 4. Full metadata is fetched via GATT on user tap (see fetchFullTrackViaGATT below)
+export function startScanning(
+  onDeviceFound: (deviceId: string, packetJson: string, rssi: number) => void,
+): void {
+  if (!bleManager) return;
+
+  try {
+    bleManager.startDeviceScan(
+      [SERVICE_UUID],
+      { allowDuplicates: false },
+      async (error: Error | null, device: any) => {
+        if (error || !device) return;
+
+        const id: string = device.id;
+        const rssi: number = device.rssi ?? -99;
+
+        // Return cached result if still fresh
+        const cached = fetchCache.get(id);
+        if (cached && Date.now() - cached.lastFetched < FETCH_CACHE_TTL_MS) {
+          onDeviceFound(id, cached.json, rssi);
+          return;
+        }
+
+        if (pendingConnections.has(id)) return;
+
+        const json = await fetchFullTrackData(id);
+        if (json) {
+          fetchCache.set(id, { lastFetched: Date.now(), json });
+          onDeviceFound(id, json, rssi);
+        }
+      },
+    );
+  } catch {
+    // BLE permission denied or hardware unavailable
+  }
 }
 
-/**
- * Tap handler: connect via GATT, read full track JSON from characteristic, disconnect.
- * Call this when user taps a BroadcasterCard with source === 'ble'.
- */
-export async function fetchFullTrackViaGATT(_peripheralId: string): Promise<Broadcaster | null> {
-  console.log('[BLE] fetchFullTrackViaGATT — stub');
-  // TODO:
-  // 1. manager.connectToDevice(peripheralId)
-  // 2. device.discoverAllServicesAndCharacteristics()
-  // 3. device.readCharacteristicForService(WAVELENGTH_SERVICE_UUID, TRACK_CHAR_UUID)
-  // 4. Parse JSON from characteristic value (base64)
-  // 5. device.cancelConnection()
-  return null;
+export function stopScanning(): void {
+  try { bleManager?.stopDeviceScan(); } catch { /* ignore */ }
+  fetchCache.clear();
+  pendingConnections.clear();
+}
+
+// ─── GATT connect → read full data ───────────────────────────────────────────
+
+export async function fetchFullTrackData(deviceId: string): Promise<string | null> {
+  if (!bleManager) return null;
+  pendingConnections.add(deviceId);
+  try {
+    const device = await bleManager.connectToDevice(deviceId, { requestMTU: 512 });
+    await device.discoverAllServicesAndCharacteristics();
+    const char = await device.readCharacteristicForService(SERVICE_UUID, TRACK_CHAR_UUID);
+    await device.cancelConnection();
+    if (!char.value) return null;
+    return decodeBase64UTF8(char.value);
+  } catch {
+    return null;
+  } finally {
+    pendingConnections.delete(deviceId);
+  }
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
+function decodeBase64UTF8(base64: string): string {
+  const raw = atob(base64);
+  const bytes = Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }

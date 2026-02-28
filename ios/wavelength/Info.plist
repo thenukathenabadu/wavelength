@@ -49,5 +49,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Wavelength uses Bluetooth to discover what people nearby are listening to and to share your listening with them.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Wavelength uses Bluetooth to broadcast what you are listening to nearby users.</string>
 </dict>
 </plist>

@@ -23,6 +23,8 @@ import {
   startListening,
   type NowPlayingResult,
 } from '../../modules/nowPlaying/NowPlayingModule';
+import * as ProximityManager from '../../services/proximity/ProximityManager';
+import { useCurrentUser } from '../../store/authSlice';
 import type { NowPlayingTrack, PlaybackSyncPacket } from '../../types';
 
 const APP_COLOR: Record<string, string> = {
@@ -44,6 +46,7 @@ const APP_LABEL: Record<string, string> = {
 export default function BroadcastScreen() {
   const { mode, setMode } = useBroadcastStore();
   const isBroadcasting = useIsBroadcasting();
+  const user = useCurrentUser();
 
   const [result, setResult] = useState<NowPlayingResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +69,22 @@ export default function BroadcastScreen() {
     init();
     return () => stopFn?.();
   }, []);
+
+  // Sync broadcast state with ProximityManager whenever track or mode changes
+  useEffect(() => {
+    if (!isBroadcasting || !result) {
+      ProximityManager.stopBroadcasting();
+      return;
+    }
+    const data: ProximityManager.BroadcastData = {
+      userId:      user?.uid ?? 'anon',
+      displayName: mode === 'anonymous' ? 'Anonymous' : (user?.displayName ?? 'Anonymous'),
+      isAnonymous: mode === 'anonymous',
+      track:       result.track,
+      sync:        result.sync,
+    };
+    ProximityManager.startBroadcasting(data);
+  }, [isBroadcasting, result, mode, user]);
 
   const track = result?.track ?? null;
   const sync = result?.sync ?? null;

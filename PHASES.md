@@ -72,7 +72,7 @@ Push to GitHub at the end of every feature with a descriptive commit.
 
 ---
 
-## Phase 5 — BLE Discovery 🔄 NEXT
+## Phase 5 — BLE Discovery ✅ COMPLETE
 *Goal: two phones see each other over Bluetooth without pairing.*
 
 | Feature | Description |
@@ -204,4 +204,7 @@ Push to GitHub at the end of every feature with a descriptive commit.
 | Phase 2 — Authentication | ✅ Complete |
 | Phase 3 — Now Playing: Android | ✅ Complete |
 | Phase 4 — Now Playing: iOS     | ✅ Complete |
-| Phase 4+ | Pending |
+| Phase 4 — Now Playing: iOS     | ✅ Complete |
+| Phase 5 — BLE Discovery        | ✅ Complete |
+| Phase 6 — Live Radar (MVP)     | 🔄 Next |
+| Phase 7+ | Pending |

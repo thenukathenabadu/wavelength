@@ -8,10 +8,9 @@ import {
   Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNearbyStore } from '../../store/nearbySlice';
+import { useNearbyStore, useBroadcasterList } from '../../store/nearbySlice';
 import BroadcasterCard from '../../components/ui/BroadcasterCard';
 import { colors, typography, spacing, radius } from '../../theme';
-import { MOCK_BROADCASTERS } from '../../dev/mockData';
 import type { Broadcaster } from '../../types';
 
 // Evict broadcasters not seen for 30 seconds
@@ -23,11 +22,8 @@ interface Props {
 
 export default function RadarScreen({ onSelectBroadcaster }: Props) {
   const evictStale = useNearbyStore((s) => s.evictStale);
+  const broadcasters = useBroadcasterList();
 
-  // Phase 1: use mock data directly; Phase 5+ will use the real store
-  const broadcasters = MOCK_BROADCASTERS;
-
-  // Pulse animation for the live indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
