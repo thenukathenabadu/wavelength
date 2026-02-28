@@ -103,7 +103,7 @@ Push to GitHub at the end of every feature with a descriptive commit.
 
 ---
 
-## Phase 7 — GPS + Cloud Layer
+## Phase 7 — GPS + Cloud Layer ✅ COMPLETE
 *Goal: discovery that works outdoors, in background, across any distance.*
 
 | Feature | Description |
@@ -207,5 +207,6 @@ Push to GitHub at the end of every feature with a descriptive commit.
 | Phase 4 — Now Playing: iOS     | ✅ Complete |
 | Phase 5 — BLE Discovery        | ✅ Complete |
 | Phase 6 — Live Radar (MVP)     | ✅ Complete |
-| Phase 7 — GPS + Cloud Layer    | 🔄 Next |
+| Phase 7 — GPS + Cloud Layer    | ✅ Complete |
+| Phase 8 — WiFi / mDNS Layer   | 🔄 Next |
 | Phase 7+ | Pending |

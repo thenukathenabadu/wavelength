@@ -2,91 +2,163 @@
  * ProximityManager — unified orchestrator for all discovery layers.
  *
  * Phase 5: BLE layer active.
- * Phase 7: GPS + Firestore (cloud layer).
+ * Phase 7: GPS + Firestore geo-queries.
  * Phase 8: mDNS/Zeroconf (same-WiFi layer).
  *
  * All sources feed into nearbySlice, deduplicated by userId.
- * Designed to be started once from App.tsx on mount.
+ * Started once from App.tsx on mount.
  */
 
 import { PermissionsAndroid, Platform } from 'react-native';
+import * as Location from 'expo-location';
 import * as BLE from '../../modules/ble/BLEDiscovery';
+import {
+  writeBroadcast,
+  deleteBroadcast,
+  startBroadcastHeartbeat,
+  stopBroadcastHeartbeat,
+  subscribeNearbyBroadcasts,
+  type BroadcastPayload,
+} from '../firebase/geobroadcast';
 import { useNearbyStore } from '../../store/nearbySlice';
+import { useSettingsStore } from '../../store/settingsSlice';
 import type { Broadcaster, NowPlayingTrack, PlaybackSyncPacket } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface BroadcastData {
-  userId: string;
+  userId:      string;
   displayName: string;
   isAnonymous: boolean;
-  track: NowPlayingTrack;
-  sync: PlaybackSyncPacket;
+  track:       NowPlayingTrack;
+  sync:        PlaybackSyncPacket;
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-const STALE_TTL_MS = 20_000; // 20s: broadcaster disappears ~20s after going offline
-let evictionTimer: ReturnType<typeof setInterval> | null = null;
-let discoveryActive = false;
+const STALE_TTL_MS = 20_000;
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+let evictionTimer:   ReturnType<typeof setInterval> | null = null;
+let gpsUnsubscribe:  (() => void) | null = null;
+let discoveryActive  = false;
+let lastBroadcastData: BroadcastData | null = null;
+let lastLocation:    { lat: number; lon: number } | null = null;
 
-/** Start passive scanning. Call once from App.tsx on mount. */
+// ─── Discovery ────────────────────────────────────────────────────────────────
+
+/** Start passive scanning across all enabled layers. Call once from App.tsx. */
 export async function startDiscovery(): Promise<void> {
   if (discoveryActive) return;
   discoveryActive = true;
 
-  const hasPermission = await requestBLEPermissions();
-  if (!hasPermission) return;
-
-  // Stale eviction every 10s
+  // Stale eviction
   evictionTimer = setInterval(() => {
     useNearbyStore.getState().evictStale(STALE_TTL_MS);
   }, 10_000);
 
-  // BLE scan — feeds nearbySlice
-  BLE.startScanning((deviceId, packetJson, rssi) => {
-    try {
-      const data = JSON.parse(packetJson) as Record<string, unknown>;
-      const broadcaster = packetToBroadcaster(deviceId, data, rssi);
-      if (broadcaster) {
-        useNearbyStore.getState().upsertBroadcaster(broadcaster);
-      }
-    } catch {
-      // Malformed JSON — ignore
-    }
-  });
-}
+  // ── BLE layer ──
+  const hasBLE = await requestBLEPermissions();
+  if (hasBLE) {
+    BLE.startScanning((deviceId, packetJson, rssi) => {
+      try {
+        const data = JSON.parse(packetJson) as Record<string, unknown>;
+        const broadcaster = bleParseToBroadcaster(deviceId, data, rssi);
+        if (broadcaster) useNearbyStore.getState().upsertBroadcaster(broadcaster);
+      } catch { /* malformed JSON */ }
+    });
+  }
 
-/** Stop all discovery and clean up. */
-export function stopDiscovery(): void {
-  discoveryActive = false;
-  BLE.stopScanning();
-  if (evictionTimer) {
-    clearInterval(evictionTimer);
-    evictionTimer = null;
+  // ── GPS layer ──
+  const { gpsEnabled, radiusKm } = useSettingsStore.getState();
+  if (gpsEnabled) {
+    await startGPSDiscovery(radiusKm);
   }
 }
 
-/** Start broadcasting your track to nearby scanners. */
-export function startBroadcasting(data: BroadcastData): void {
+export function stopDiscovery(): void {
+  discoveryActive = false;
+  BLE.stopScanning();
+  stopGPSDiscovery();
+  if (evictionTimer) { clearInterval(evictionTimer); evictionTimer = null; }
+}
+
+// ─── Broadcasting ─────────────────────────────────────────────────────────────
+
+export async function startBroadcasting(data: BroadcastData): Promise<void> {
+  lastBroadcastData = data;
+
+  // BLE advertising
   BLE.startAdvertising(buildPacketJson(data));
+
+  // GPS broadcast write + heartbeat
+  const { gpsEnabled } = useSettingsStore.getState();
+  if (gpsEnabled) {
+    const loc = await getLocation();
+    if (loc) {
+      lastLocation = loc;
+      const payload = toGeoPayload(data, loc);
+      await writeBroadcast(payload).catch(() => {});
+      startBroadcastHeartbeat(() => {
+        if (!lastBroadcastData || !lastLocation) return null;
+        return toGeoPayload(lastBroadcastData, lastLocation);
+      });
+    }
+  }
 }
 
-/** Update the GATT characteristic while already broadcasting (track changed). */
-export function updateBroadcasting(data: BroadcastData): void {
+export async function updateBroadcasting(data: BroadcastData): Promise<void> {
+  lastBroadcastData = data;
   BLE.updateBroadcastTrack(buildPacketJson(data));
+
+  // Refresh Firestore doc with new sync packet
+  const { gpsEnabled } = useSettingsStore.getState();
+  if (gpsEnabled && lastLocation) {
+    await writeBroadcast(toGeoPayload(data, lastLocation)).catch(() => {});
+  }
 }
 
-/** Stop broadcasting (removes you from others' Radar). */
-export function stopBroadcasting(): void {
+export async function stopBroadcasting(): Promise<void> {
+  const userId = lastBroadcastData?.userId;
+  lastBroadcastData = null;
+
   BLE.stopAdvertising();
+  stopBroadcastHeartbeat();
+  if (userId) await deleteBroadcast(userId).catch(() => {});
+}
+
+// ─── GPS helpers ──────────────────────────────────────────────────────────────
+
+async function startGPSDiscovery(radiusKm: number): Promise<void> {
+  const loc = await getLocation();
+  if (!loc) return;
+  lastLocation = loc;
+
+  gpsUnsubscribe = subscribeNearbyBroadcasts(loc.lat, loc.lon, radiusKm, (broadcasters) => {
+    const { upsertBroadcaster } = useNearbyStore.getState();
+    broadcasters.forEach(upsertBroadcaster);
+  });
+}
+
+function stopGPSDiscovery(): void {
+  gpsUnsubscribe?.();
+  gpsUnsubscribe = null;
+}
+
+async function getLocation(): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return null;
+    const pos = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    return { lat: pos.coords.latitude, lon: pos.coords.longitude };
+  } catch {
+    return null;
+  }
 }
 
 // ─── Packet helpers ───────────────────────────────────────────────────────────
 
-/** Serialises broadcast data into the GATT JSON packet. */
 export function buildPacketJson(data: BroadcastData): string {
   return JSON.stringify({
     userId:          data.userId,
@@ -106,8 +178,22 @@ export function buildPacketJson(data: BroadcastData): string {
   });
 }
 
-/** Parses a GATT JSON packet into a Broadcaster object. */
-function packetToBroadcaster(
+function toGeoPayload(
+  data: BroadcastData,
+  loc: { lat: number; lon: number },
+): BroadcastPayload {
+  return {
+    userId:      data.userId,
+    displayName: data.displayName,
+    isAnonymous: data.isAnonymous,
+    lat:         loc.lat,
+    lon:         loc.lon,
+    track:       data.track,
+    sync:        data.sync,
+  };
+}
+
+function bleParseToBroadcaster(
   deviceId: string,
   d: Record<string, unknown>,
   rssi: number,
@@ -122,19 +208,19 @@ function packetToBroadcaster(
     track: {
       trackName,
       artistName:     (d.artistName as string | undefined) ?? '',
-      albumName:      d.albumName as string | undefined,
-      albumArtUrl:    d.albumArtUrl as string | undefined,
+      albumName:      d.albumName      as string | undefined,
+      albumArtUrl:    d.albumArtUrl    as string | undefined,
       totalDuration:  (d.totalDuration as number | undefined) ?? 0,
       sourceApp:      (d.sourceApp as NowPlayingTrack['sourceApp'] | undefined) ?? 'unknown',
-      deepLinkUri:    d.deepLinkUri as string | undefined,
+      deepLinkUri:    d.deepLinkUri    as string | undefined,
       spotifyTrackId: d.spotifyTrackId as string | undefined,
     },
     sync: {
-      startedAt:       (d.startedAt as number | undefined) ?? Date.now(),
+      startedAt:       (d.startedAt       as number | undefined) ?? Date.now(),
       positionAtStart: (d.positionAtStart as number | undefined) ?? 0,
-      isPlaying:       (d.isPlaying as boolean | undefined) ?? false,
+      isPlaying:       (d.isPlaying       as boolean | undefined) ?? false,
     },
-    source:        'ble',
+    source:         'ble',
     distanceMeters: rssiToDistance(rssi),
     lastSeen:       Date.now(),
   };
@@ -143,39 +229,28 @@ function packetToBroadcaster(
 // ─── Permissions ──────────────────────────────────────────────────────────────
 
 async function requestBLEPermissions(): Promise<boolean> {
-  if (Platform.OS === 'ios') {
-    // iOS prompts automatically on first CBCentralManager/CBPeripheralManager use
-    return true;
-  }
-
+  if (Platform.OS === 'ios') return true;
   try {
     if (Platform.Version >= 31) {
-      // Android 12+
       const results = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
       ]);
-      return Object.values(results).every(
-        (r) => r === PermissionsAndroid.RESULTS.GRANTED,
-      );
+      return Object.values(results).every((r) => r === PermissionsAndroid.RESULTS.GRANTED);
     } else {
-      // Android < 12: location permission gates BLE scanning
       const result = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
       );
       return result === PermissionsAndroid.RESULTS.GRANTED;
     }
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
-/** Rough RSSI → distance conversion (log-distance path loss model). */
 function rssiToDistance(rssi: number): number {
-  const txPower = -59; // typical measured power at 1m
-  const n = 2.0;       // path loss exponent (2 = free space)
+  const txPower = -59;
+  const n = 2.0;
   return Math.pow(10, (txPower - rssi) / (10 * n));
 }

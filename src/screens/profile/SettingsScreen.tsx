@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -9,22 +9,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, typography, spacing, radius } from '../../theme';
-
-const RADIUS_OPTIONS = [
-  { label: '100m', value: 100, desc: 'Immediate surroundings' },
-  { label: '250m', value: 250, desc: 'City block' },
-  { label: '500m', value: 500, desc: 'Neighbourhood' },
-  { label: '1km', value: 1000, desc: 'Wide area' },
-];
+import { useSettingsStore, RADIUS_OPTIONS } from '../../store/settingsSlice';
 
 export default function SettingsScreen() {
-  const [radiusIndex, setRadiusIndex] = useState(0);
-  const [bleEnabled, setBleEnabled] = useState(true);
-  const [wifiEnabled, setWifiEnabled] = useState(true);
-  const [gpsEnabled, setGpsEnabled] = useState(true);
-  const [showDistance, setShowDistance] = useState(true);
+  const {
+    radiusKm, setRadiusKm,
+    bleEnabled, setBleEnabled,
+    gpsEnabled, setGpsEnabled,
+    wifiEnabled, setWifiEnabled,
+    showDistance, setShowDistance,
+  } = useSettingsStore();
 
-  const selected = RADIUS_OPTIONS[radiusIndex]!;
+  const radiusIndex = RADIUS_OPTIONS.findIndex((o) => o.value === radiusKm);
+  const selected = RADIUS_OPTIONS[radiusIndex >= 0 ? radiusIndex : 1]!;
 
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
@@ -41,11 +38,11 @@ export default function SettingsScreen() {
               {RADIUS_OPTIONS.map((opt, i) => (
                 <TouchableOpacity
                   key={opt.value}
-                  style={[styles.segment, i === radiusIndex && styles.segmentActive]}
-                  onPress={() => setRadiusIndex(i)}
+                  style={[styles.segment, opt.value === radiusKm && styles.segmentActive]}
+                  onPress={() => setRadiusKm(opt.value)}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.segmentText, i === radiusIndex && styles.segmentTextActive]}>
+                  <Text style={[styles.segmentText, opt.value === radiusKm && styles.segmentTextActive]}>
                     {opt.label}
                   </Text>
                 </TouchableOpacity>
@@ -67,21 +64,21 @@ export default function SettingsScreen() {
               sublabel="~30–50m · no pairing · cross-platform"
               accentColor={colors.source.ble}
               value={bleEnabled}
-              onValueChange={setBleEnabled}
+              onValueChange={(v) => setBleEnabled(v)}
             />
             <ToggleRow
               label="Same WiFi Network"
               sublabel="Office, café on shared router"
               accentColor={colors.source.mdns}
               value={wifiEnabled}
-              onValueChange={setWifiEnabled}
+              onValueChange={(v) => setWifiEnabled(v)}
             />
             <ToggleRow
               label="GPS + Cloud"
               sublabel={`Up to ${selected.label} · requires location access`}
               accentColor={colors.source.gps}
               value={gpsEnabled}
-              onValueChange={setGpsEnabled}
+              onValueChange={(v) => setGpsEnabled(v)}
               last
             />
           </View>
@@ -95,7 +92,7 @@ export default function SettingsScreen() {
               label="Show distance"
               sublabel="Display metres/km on broadcaster cards"
               value={showDistance}
-              onValueChange={setShowDistance}
+              onValueChange={(v) => setShowDistance(v)}
               last
             />
           </View>

@@ -49,6 +49,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<!-- Location: required for GPS discovery layer -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Wavelength uses your location to discover nearby listeners and to let them discover you.</string>
 	<!-- Deep link: canOpenURL requires schemes declared here on iOS 9+ -->
 	<key>LSApplicationQueriesSchemes</key>
 	<array>

@@ -14,8 +14,9 @@
     android:usesPermissionFlags="neverForLocation" tools:targetApi="s"/>
   <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:targetApi="s"/>
   <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" tools:targetApi="s"/>
-  <!-- Required on Android < 12 for BLE scanning -->
-  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30"/>
+  <!-- Location: required for BLE scanning on Android < 12, and always for GPS discovery -->
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
   <uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>
   <!-- OPTIONAL PERMISSIONS, REMOVE WHATEVER YOU DO NOT NEED -->
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
