@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,23 @@ import {
   Animated,
   Switch,
   Image,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBroadcastStore, useIsBroadcasting } from '../../store/broadcastSlice';
 import ProgressBar from '../../components/ui/ProgressBar';
 import { formatDuration, currentPosition } from '../../utils/playbackMath';
 import { colors, typography, spacing, radius, shadows } from '../../theme';
-import { MOCK_CURRENT_TRACK, MOCK_CURRENT_SYNC } from '../../dev/mockData';
+import {
+  getCurrentTrack,
+  startListening,
+  type NowPlayingResult,
+} from '../../modules/nowPlaying/NowPlayingModule';
+import type { NowPlayingTrack, PlaybackSyncPacket } from '../../types';
 
 const APP_COLOR: Record<string, string> = {
   spotify: colors.app.spotify,
@@ -35,12 +45,32 @@ export default function BroadcastScreen() {
   const { mode, setMode } = useBroadcastStore();
   const isBroadcasting = useIsBroadcasting();
 
-  // Phase 1: use mock track — Phase 3/4 will replace with NowPlayingModule
-  const track = MOCK_CURRENT_TRACK;
-  const sync = MOCK_CURRENT_SYNC;
+  const [result, setResult] = useState<NowPlayingResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [manualEntryVisible, setManualEntryVisible] = useState(false);
 
-  const appColor = APP_COLOR[track.sourceApp] ?? colors.text.muted;
-  const position = currentPosition(sync);
+  // Subscribe to now-playing updates
+  useEffect(() => {
+    let stopFn: (() => void) | null = null;
+
+    async function init() {
+      const initial = await getCurrentTrack();
+      setResult(initial);
+      setLoading(false);
+
+      stopFn = startListening((update) => {
+        setResult(update);
+      });
+    }
+
+    init();
+    return () => stopFn?.();
+  }, []);
+
+  const track = result?.track ?? null;
+  const sync = result?.sync ?? null;
+  const appColor = APP_COLOR[track?.sourceApp ?? 'unknown'] ?? colors.text.muted;
+  const positionSecs = sync ? currentPosition(sync) : 0;
 
   // Broadcast ring animation
   const ringAnim = useRef(new Animated.Value(0)).current;
@@ -67,6 +97,22 @@ export default function BroadcastScreen() {
 
   const ringScale = ringAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] });
 
+  function handleManualEntry(manual: { trackName: string; artistName: string }) {
+    const manualTrack: NowPlayingTrack = {
+      trackName: manual.trackName,
+      artistName: manual.artistName,
+      totalDuration: 0,
+      sourceApp: 'unknown',
+    };
+    const manualSync: PlaybackSyncPacket = {
+      startedAt: Date.now(),
+      positionAtStart: 0,
+      isPlaying: true,
+    };
+    setResult({ track: manualTrack, sync: manualSync });
+    setManualEntryVisible(false);
+  }
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <View style={styles.header}>
@@ -79,7 +125,6 @@ export default function BroadcastScreen() {
       {/* Main toggle card */}
       <View style={styles.toggleCard}>
         <View style={styles.toggleCardTop}>
-          {/* Animated ring behind the toggle label */}
           <View style={styles.ringContainer}>
             {isBroadcasting && (
               <Animated.View
@@ -98,7 +143,7 @@ export default function BroadcastScreen() {
             </Text>
             <Text style={styles.toggleSublabel}>
               {isBroadcasting
-                ? 'Others nearby can see what you\'re listening to'
+                ? "Others nearby can see what you're listening to"
                 : 'Turn on to share your listening with the world'}
             </Text>
           </View>
@@ -112,7 +157,6 @@ export default function BroadcastScreen() {
           />
         </View>
 
-        {/* Anonymous toggle — only shown when broadcasting */}
         {isBroadcasting && (
           <View style={styles.anonRow}>
             <View style={styles.anonLeft}>
@@ -132,65 +176,154 @@ export default function BroadcastScreen() {
         )}
       </View>
 
-      {/* Current track card */}
+      {/* Now Playing section */}
       <View style={styles.sectionLabel}>
         <Text style={styles.sectionTitle}>Now Playing</Text>
-        <View style={[styles.appPill, { borderColor: `${appColor}44` }]}>
-          <View style={[styles.appDot, { backgroundColor: appColor }]} />
-          <Text style={[styles.appPillText, { color: appColor }]}>
-            {APP_LABEL[track.sourceApp]}
-          </Text>
-        </View>
+        {track && (
+          <View style={[styles.appPill, { borderColor: `${appColor}44` }]}>
+            <View style={[styles.appDot, { backgroundColor: appColor }]} />
+            <Text style={[styles.appPillText, { color: appColor }]}>
+              {APP_LABEL[track.sourceApp]}
+            </Text>
+          </View>
+        )}
       </View>
 
-      <View style={[styles.trackCard, isBroadcasting && { borderColor: `${appColor}33` }]}>
-        <View style={styles.trackTop}>
-          <View style={styles.trackArtWrapper}>
-            {track.albumArtUrl ? (
-              <Image
-                source={{ uri: track.albumArtUrl }}
-                style={styles.trackArt}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={[styles.trackArtPlaceholder, { backgroundColor: `${appColor}22` }]} />
-            )}
-          </View>
+      {loading ? (
+        <View style={styles.emptyCard}>
+          <ActivityIndicator color={colors.brand.default} />
+          <Text style={styles.emptyText}>Detecting track…</Text>
+        </View>
+      ) : track && sync ? (
+        <View style={[styles.trackCard, isBroadcasting && { borderColor: `${appColor}33` }]}>
+          <View style={styles.trackTop}>
+            <View style={styles.trackArtWrapper}>
+              {track.albumArtUrl ? (
+                <Image
+                  source={{ uri: track.albumArtUrl }}
+                  style={styles.trackArt}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.trackArtPlaceholder, { backgroundColor: `${appColor}22` }]} />
+              )}
+            </View>
 
-          <View style={styles.trackMeta}>
-            <Text style={styles.trackName} numberOfLines={2}>
-              {track.trackName}
-            </Text>
-            <Text style={styles.trackArtist} numberOfLines={1}>
-              {track.artistName}
-            </Text>
-            {track.albumName && (
-              <Text style={styles.trackAlbum} numberOfLines={1}>
-                {track.albumName}
+            <View style={styles.trackMeta}>
+              <Text style={styles.trackName} numberOfLines={2}>
+                {track.trackName}
               </Text>
-            )}
+              <Text style={styles.trackArtist} numberOfLines={1}>
+                {track.artistName}
+              </Text>
+              {track.albumName && (
+                <Text style={styles.trackAlbum} numberOfLines={1}>
+                  {track.albumName}
+                </Text>
+              )}
+            </View>
           </View>
-        </View>
 
-        <View style={styles.trackProgress}>
-          <ProgressBar sync={sync} totalDuration={track.totalDuration} height={3} fillColor={appColor} />
-          <View style={styles.trackTiming}>
-            <Text style={styles.timingText}>{formatDuration(position)}</Text>
-            <Text style={styles.timingText}>{formatDuration(track.totalDuration)}</Text>
-          </View>
+          {track.totalDuration > 0 && (
+            <View style={styles.trackProgress}>
+              <ProgressBar sync={sync} totalDuration={track.totalDuration} height={3} fillColor={appColor} />
+              <View style={styles.trackTiming}>
+                <Text style={styles.timingText}>{formatDuration(positionSecs)}</Text>
+                <Text style={styles.timingText}>{formatDuration(track.totalDuration)}</Text>
+              </View>
+            </View>
+          )}
         </View>
-      </View>
+      ) : (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>No track detected</Text>
+          <Text style={styles.emptyText}>
+            Play something in Spotify, Apple Music, or another app, then come back.
+          </Text>
+          <TouchableOpacity
+            style={styles.manualButton}
+            onPress={() => setManualEntryVisible(true)}
+          >
+            <Text style={styles.manualButtonText}>Enter track manually</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {/* Phase 3 notice */}
-      <View style={styles.notice}>
-        <Text style={styles.noticeText}>
-          Track detection is automatic on device.{'\n'}
-          Android reads any app · iOS reads Spotify + Apple Music.
-        </Text>
-      </View>
+      <ManualEntryModal
+        visible={manualEntryVisible}
+        onDismiss={() => setManualEntryVisible(false)}
+        onConfirm={handleManualEntry}
+      />
     </SafeAreaView>
   );
 }
+
+// ─── Manual Entry Modal ───────────────────────────────────────────────────────
+
+function ManualEntryModal({
+  visible,
+  onDismiss,
+  onConfirm,
+}: {
+  visible: boolean;
+  onDismiss: () => void;
+  onConfirm: (v: { trackName: string; artistName: string }) => void;
+}) {
+  const [trackName, setTrackName] = useState('');
+  const [artistName, setArtistName] = useState('');
+
+  function handleConfirm() {
+    if (!trackName.trim()) return;
+    onConfirm({ trackName: trackName.trim(), artistName: artistName.trim() });
+    setTrackName('');
+    setArtistName('');
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
+      <KeyboardAvoidingView
+        style={styles.modalOverlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onDismiss} activeOpacity={1} />
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Enter track manually</Text>
+          <TextInput
+            style={styles.modalInput}
+            placeholder="Track name"
+            placeholderTextColor={colors.text.muted}
+            value={trackName}
+            onChangeText={setTrackName}
+            returnKeyType="next"
+          />
+          <TextInput
+            style={styles.modalInput}
+            placeholder="Artist name (optional)"
+            placeholderTextColor={colors.text.muted}
+            value={artistName}
+            onChangeText={setArtistName}
+            returnKeyType="done"
+            onSubmitEditing={handleConfirm}
+          />
+          <View style={styles.modalButtons}>
+            <TouchableOpacity style={styles.modalCancel} onPress={onDismiss}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalConfirm, !trackName.trim() && styles.modalConfirmDisabled]}
+              onPress={handleConfirm}
+              disabled={!trackName.trim()}
+            >
+              <Text style={styles.modalConfirmText}>Broadcast</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   root: {
@@ -254,10 +387,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand.default,
     ...shadows.brand,
   },
-  toggleLabels: {
-    flex: 1,
-    gap: 2,
-  },
+  toggleLabels: { flex: 1, gap: 2 },
   toggleLabel: {
     fontSize: typography.size.base,
     fontWeight: typography.weight.bold,
@@ -278,19 +408,13 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border.subtle,
     gap: spacing[3],
   },
-  anonLeft: {
-    flex: 1,
-    gap: 2,
-  },
+  anonLeft: { flex: 1, gap: 2 },
   anonLabel: {
     fontSize: typography.size.sm,
     fontWeight: typography.weight.semibold,
     color: colors.text.primary,
   },
-  anonSub: {
-    fontSize: typography.size.xs,
-    color: colors.text.muted,
-  },
+  anonSub: { fontSize: typography.size.xs, color: colors.text.muted },
 
   // Section label
   sectionLabel: {
@@ -313,15 +437,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     borderWidth: 1,
   },
-  appDot: {
-    width: 6,
-    height: 6,
-    borderRadius: radius.full,
-  },
-  appPillText: {
-    fontSize: typography.size.xs,
-    fontWeight: typography.weight.semibold,
-  },
+  appDot: { width: 6, height: 6, borderRadius: radius.full },
+  appPillText: { fontSize: typography.size.xs, fontWeight: typography.weight.semibold },
 
   // Track card
   trackCard: {
@@ -332,62 +449,112 @@ const styles = StyleSheet.create({
     padding: spacing[4],
     gap: spacing[4],
   },
-  trackTop: {
-    flexDirection: 'row',
-    gap: spacing[3],
-    alignItems: 'center',
-  },
+  trackTop: { flexDirection: 'row', gap: spacing[3], alignItems: 'center' },
   trackArtWrapper: {},
-  trackArt: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.md,
-    backgroundColor: colors.bg.cardElevated,
-  },
-  trackArtPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.md,
-  },
-  trackMeta: {
-    flex: 1,
-    gap: spacing[1],
-  },
+  trackArt: { width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.bg.cardElevated },
+  trackArtPlaceholder: { width: 64, height: 64, borderRadius: radius.md },
+  trackMeta: { flex: 1, gap: spacing[1] },
   trackName: {
     fontSize: typography.size.base,
     fontWeight: typography.weight.bold,
     color: colors.text.primary,
     letterSpacing: -0.2,
   },
-  trackArtist: {
-    fontSize: typography.size.sm,
-    color: colors.text.secondary,
-  },
-  trackAlbum: {
-    fontSize: typography.size.xs,
-    color: colors.text.muted,
-  },
-  trackProgress: {
-    gap: spacing[1],
-  },
-  trackTiming: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  timingText: {
-    fontSize: typography.size.xs,
-    color: colors.text.muted,
-  },
+  trackArtist: { fontSize: typography.size.sm, color: colors.text.secondary },
+  trackAlbum: { fontSize: typography.size.xs, color: colors.text.muted },
+  trackProgress: { gap: spacing[1] },
+  trackTiming: { flexDirection: 'row', justifyContent: 'space-between' },
+  timingText: { fontSize: typography.size.xs, color: colors.text.muted },
 
-  // Notice
-  notice: {
-    marginTop: spacing[5],
-    paddingHorizontal: spacing[2],
+  // Empty / loading state
+  emptyCard: {
+    backgroundColor: colors.bg.card,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    padding: spacing[6],
+    alignItems: 'center',
+    gap: spacing[3],
   },
-  noticeText: {
-    fontSize: typography.size.xs,
+  emptyTitle: {
+    fontSize: typography.size.base,
+    fontWeight: typography.weight.bold,
+    color: colors.text.primary,
+  },
+  emptyText: {
+    fontSize: typography.size.sm,
     color: colors.text.muted,
     textAlign: 'center',
-    lineHeight: typography.size.xs * 1.6,
+    lineHeight: typography.size.sm * 1.5,
+  },
+  manualButton: {
+    marginTop: spacing[2],
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[2],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.brand.default,
+  },
+  manualButtonText: {
+    fontSize: typography.size.sm,
+    color: colors.brand.light,
+    fontWeight: typography.weight.semibold,
+  },
+
+  // Manual entry modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+    padding: spacing[4],
+  },
+  modalCard: {
+    backgroundColor: colors.bg.card,
+    borderRadius: radius.xl,
+    padding: spacing[5],
+    gap: spacing[3],
+  },
+  modalTitle: {
+    fontSize: typography.size.lg,
+    fontWeight: typography.weight.bold,
+    color: colors.text.primary,
+    marginBottom: spacing[1],
+  },
+  modalInput: {
+    backgroundColor: colors.bg.primary,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    fontSize: typography.size.base,
+    color: colors.text.primary,
+  },
+  modalButtons: { flexDirection: 'row', gap: spacing[3], marginTop: spacing[1] },
+  modalCancel: {
+    flex: 1,
+    paddingVertical: spacing[3],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: typography.size.base,
+    color: colors.text.secondary,
+    fontWeight: typography.weight.medium,
+  },
+  modalConfirm: {
+    flex: 1,
+    paddingVertical: spacing[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.brand.default,
+    alignItems: 'center',
+  },
+  modalConfirmDisabled: { opacity: 0.4 },
+  modalConfirmText: {
+    fontSize: typography.size.base,
+    color: colors.text.primary,
+    fontWeight: typography.weight.bold,
   },
 });

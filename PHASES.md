@@ -10,7 +10,7 @@ Push to GitHub at the end of every feature with a descriptive commit.
 
 ---
 
-## Phase 1 — UI Shell 🔄 NEXT
+## Phase 1 — UI Shell ✅ COMPLETE
 *Goal: tap through the entire app. No real data. Everything uses static mocks.*
 
 | Feature | Description |
@@ -43,7 +43,7 @@ Push to GitHub at the end of every feature with a descriptive commit.
 
 ---
 
-## Phase 3 — Now Playing: Android
+## Phase 3 — Now Playing: Android ✅ COMPLETE
 *Goal: read any app's playback on Android automatically.*
 
 | Feature | Description |
@@ -58,7 +58,7 @@ Push to GitHub at the end of every feature with a descriptive commit.
 
 ---
 
-## Phase 4 — Now Playing: iOS
+## Phase 4 — Now Playing: iOS ✅ COMPLETE
 *Goal: read Apple Music and Spotify on iOS.*
 
 | Feature | Description |
@@ -72,7 +72,7 @@ Push to GitHub at the end of every feature with a descriptive commit.
 
 ---
 
-## Phase 5 — BLE Discovery
+## Phase 5 — BLE Discovery 🔄 NEXT
 *Goal: two phones see each other over Bluetooth without pairing.*
 
 | Feature | Description |
@@ -202,5 +202,6 @@ Push to GitHub at the end of every feature with a descriptive commit.
 | Phase 0 — Foundation | ✅ Complete |
 | Phase 1 — UI Shell | ✅ Complete |
 | Phase 2 — Authentication | ✅ Complete |
-| Phase 3 — Now Playing: Android | 🔄 Next |
+| Phase 3 — Now Playing: Android | ✅ Complete |
+| Phase 4 — Now Playing: iOS     | ✅ Complete |
 | Phase 4+ | Pending |
