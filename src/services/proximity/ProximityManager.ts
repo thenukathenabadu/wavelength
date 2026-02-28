@@ -26,7 +26,7 @@ export interface BroadcastData {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-const STALE_TTL_MS = 30_000;
+const STALE_TTL_MS = 20_000; // 20s: broadcaster disappears ~20s after going offline
 let evictionTimer: ReturnType<typeof setInterval> | null = null;
 let discoveryActive = false;
 

@@ -75,16 +75,17 @@ export function startScanning(
   try {
     bleManager.startDeviceScan(
       [SERVICE_UUID],
-      { allowDuplicates: false },
+      { allowDuplicates: true },  // Must be true so we see repeat ads and can track lastSeen
       async (error: Error | null, device: any) => {
         if (error || !device) return;
 
         const id: string = device.id;
         const rssi: number = device.rssi ?? -99;
 
-        // Return cached result if still fresh
+        // Return cached result if still fresh (avoids repeated GATT connections)
         const cached = fetchCache.get(id);
         if (cached && Date.now() - cached.lastFetched < FETCH_CACHE_TTL_MS) {
+          // Still call callback so ProximityManager can update lastSeen
           onDeviceFound(id, cached.json, rssi);
           return;
         }

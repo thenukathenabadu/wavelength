@@ -2,11 +2,13 @@ package com.wavelength.mediasession
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Build
+import android.provider.Settings
 import androidx.annotation.RequiresApi
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
@@ -149,6 +151,47 @@ class MediaSessionModule(private val reactContext: ReactApplicationContext) :
             putDouble("currentPosition", position.toDouble() / 1000.0)
             putBoolean("isPlaying", isPlaying)
             putString("sourceApp", packageName)
+        }
+    }
+
+    // ── Notification access helpers ────────────────────────────────────────────
+
+    /**
+     * Returns true if the user has granted Notification Access to Wavelength.
+     * Without this, MediaSessionManager.getActiveSessions() always returns empty.
+     */
+    @ReactMethod
+    fun isNotificationAccessGranted(promise: Promise) {
+        try {
+            val enabledListeners = Settings.Secure.getString(
+                reactContext.contentResolver,
+                "enabled_notification_listeners",
+            )
+            promise.resolve(enabledListeners?.contains(reactContext.packageName) == true)
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
+    /**
+     * Opens the system Notification Access settings screen so the user can
+     * enable access for Wavelength.
+     */
+    @ReactMethod
+    fun openNotificationAccessSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            reactContext.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback: open general app settings
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = android.net.Uri.fromParts("package", reactContext.packageName, null)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                reactContext.startActivity(intent)
+            } catch (_: Exception) {}
         }
     }
 

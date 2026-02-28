@@ -12,6 +12,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  AppState,
+  NativeModules,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBroadcastStore, useIsBroadcasting } from '../../store/broadcastSlice';
@@ -51,6 +53,27 @@ export default function BroadcastScreen() {
   const [result, setResult] = useState<NowPlayingResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [manualEntryVisible, setManualEntryVisible] = useState(false);
+  const [notificationAccessGranted, setNotificationAccessGranted] = useState(true);
+
+  // Android: check notification access and re-check when app foregrounds
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    async function checkAccess() {
+      try {
+        const granted = await NativeModules.MediaSessionModule?.isNotificationAccessGranted();
+        setNotificationAccessGranted(granted ?? true);
+      } catch {
+        setNotificationAccessGranted(true); // Don't show banner if check fails
+      }
+    }
+
+    checkAccess();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkAccess();
+    });
+    return () => sub.remove();
+  }, []);
 
   // Subscribe to now-playing updates
   useEffect(() => {
@@ -140,6 +163,23 @@ export default function BroadcastScreen() {
           {isBroadcasting ? 'Your track is visible to nearby listeners' : 'You are invisible'}
         </Text>
       </View>
+
+      {/* Android: notification access banner */}
+      {Platform.OS === 'android' && !notificationAccessGranted && (
+        <TouchableOpacity
+          style={styles.accessBanner}
+          onPress={() => NativeModules.MediaSessionModule?.openNotificationAccessSettings()}
+          activeOpacity={0.85}
+        >
+          <View style={styles.accessBannerLeft}>
+            <Text style={styles.accessBannerTitle}>Notification Access required</Text>
+            <Text style={styles.accessBannerBody}>
+              Tap to grant access so Wavelength can detect what you're playing.
+            </Text>
+          </View>
+          <Text style={styles.accessBannerArrow}>›</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Main toggle card */}
       <View style={styles.toggleCard}>
@@ -365,6 +405,35 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: typography.size.sm,
     color: colors.text.muted,
+  },
+
+  // Notification access banner
+  accessBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2D2200',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: '#F5A623',
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    marginBottom: spacing[4],
+    gap: spacing[3],
+  },
+  accessBannerLeft: { flex: 1, gap: 2 },
+  accessBannerTitle: {
+    fontSize: typography.size.sm,
+    fontWeight: typography.weight.bold,
+    color: '#F5A623',
+  },
+  accessBannerBody: {
+    fontSize: typography.size.xs,
+    color: '#C8992A',
+    lineHeight: typography.size.xs * 1.5,
+  },
+  accessBannerArrow: {
+    fontSize: typography.size.xl,
+    color: '#F5A623',
   },
 
   // Toggle card

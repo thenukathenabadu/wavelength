@@ -49,6 +49,14 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<!-- Deep link: canOpenURL requires schemes declared here on iOS 9+ -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>spotify</string>
+		<string>music</string>
+		<string>youtubemusic</string>
+		<string>podcasts</string>
+	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Wavelength uses Bluetooth to discover what people nearby are listening to and to share your listening with them.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

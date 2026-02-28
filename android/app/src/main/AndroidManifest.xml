@@ -32,6 +32,18 @@
       <category android:name="android.intent.category.BROWSABLE" />
       <data android:scheme="https" />
     </intent>
+    <!-- Deep link: music apps (required on Android 11+ for canOpenURL) -->
+    <package android:name="com.spotify.music" />
+    <package android:name="com.google.android.apps.youtube.music" />
+    <package android:name="com.apple.android.music" />
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="spotify" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="youtubemusic" />
+    </intent>
   </queries>
 
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="false" android:theme="@style/AppTheme" android:supportsRtl="true">
