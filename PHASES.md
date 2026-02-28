@@ -201,5 +201,6 @@ Push to GitHub at the end of every feature with a descriptive commit.
 |---|---|
 | Phase 0 — Foundation | ✅ Complete |
 | Phase 1 — UI Shell | ✅ Complete |
-| Phase 2 — Authentication | 🔄 Next |
-| Phase 3+ | Pending |
+| Phase 2 — Authentication | ✅ Complete |
+| Phase 3 — Now Playing: Android | 🔄 Next |
+| Phase 4+ | Pending |
