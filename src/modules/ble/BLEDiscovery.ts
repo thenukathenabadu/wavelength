@@ -45,6 +45,15 @@ const FETCH_CACHE_TTL_MS = 25_000;
 interface FetchCache { lastFetched: number; json: string; }
 const fetchCache = new Map<string, FetchCache>();
 const pendingConnections = new Set<string>();
+let backgroundMode = false;
+
+/**
+ * Switch between foreground (normal power) and background (low power) scan modes.
+ * Call from RadarScreen's AppState listener.
+ */
+export function setBackgroundMode(isBackground: boolean): void {
+  backgroundMode = isBackground;
+}
 
 // ─── Advertising (peripheral role) ───────────────────────────────────────────
 
@@ -72,10 +81,13 @@ export function startScanning(
 ): void {
   if (!bleManager) return;
 
+  // react-native-ble-plx ScanMode: 0=Opportunistic, 1=LowPower, 2=Balanced, 3=LowLatency
+  const scanMode = backgroundMode ? 1 : 2; // LowPower in background, Balanced in foreground
+
   try {
     bleManager.startDeviceScan(
       [SERVICE_UUID],
-      { allowDuplicates: true },  // Must be true so we see repeat ads and can track lastSeen
+      { allowDuplicates: true, scanMode },  // Must be true so we see repeat ads and can track lastSeen
       async (error: Error | null, device: any) => {
         if (error || !device) return;
 

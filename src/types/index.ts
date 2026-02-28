@@ -25,7 +25,31 @@ export interface Broadcaster {
   sync: PlaybackSyncPacket;
   source: 'ble' | 'mdns' | 'gps';
   distanceMeters?: number;
+  lat?: number; // only populated for GPS-sourced broadcasters
+  lon?: number;
   lastSeen: number; // Unix ms
+}
+
+// ─── Social types ─────────────────────────────────────────────────────────────
+
+export interface UserProfile {
+  uid: string;
+  displayName: string;
+  username: string;
+}
+
+export interface Friend {
+  friendUid: string;
+  displayName: string;
+  username: string;
+  addedAt: number; // Unix ms
+}
+
+export interface FriendRequest {
+  fromUid: string;
+  fromDisplayName: string;
+  fromUsername: string;
+  createdAt: number; // Unix ms
 }
 
 // ─── Navigation param lists ───────────────────────────────────────────────────
@@ -39,6 +63,9 @@ export type AuthStackParamList = {
 export type MainTabParamList = {
   Radar: undefined;
   Broadcasting: undefined;
+  Global: undefined;
+  Friends: undefined;
+  Insights: undefined;
   Profile: undefined;
 };
 
@@ -50,4 +77,10 @@ export type RadarStackParamList = {
 export type ProfileStackParamList = {
   ProfileScreen: undefined;
   Settings: undefined;
+  PrivacyPolicy: undefined;
+};
+
+export type FriendsStackParamList = {
+  FriendsHome: undefined;
+  SearchUsers: { prefillUsername?: string };
 };

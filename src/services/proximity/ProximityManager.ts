@@ -9,9 +9,11 @@
  * Started once from App.tsx on mount.
  */
 
-import { PermissionsAndroid, Platform } from 'react-native';
+import { PermissionsAndroid, Platform, AppState } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import * as Location from 'expo-location';
 import * as BLE from '../../modules/ble/BLEDiscovery';
+import * as MDNS from '../../modules/mdns/MDNSDiscovery';
 import {
   writeBroadcast,
   deleteBroadcast,
@@ -23,6 +25,7 @@ import {
 import { useNearbyStore } from '../../store/nearbySlice';
 import { useSettingsStore } from '../../store/settingsSlice';
 import type { Broadcaster, NowPlayingTrack, PlaybackSyncPacket } from '../../types';
+import { scheduleNearbyNotification } from '../notifications/notificationsService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,7 +39,6 @@ export interface BroadcastData {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-const STALE_TTL_MS = 20_000;
 
 let evictionTimer:   ReturnType<typeof setInterval> | null = null;
 let gpsUnsubscribe:  (() => void) | null = null;
@@ -53,7 +55,7 @@ export async function startDiscovery(): Promise<void> {
 
   // Stale eviction
   evictionTimer = setInterval(() => {
-    useNearbyStore.getState().evictStale(STALE_TTL_MS);
+    useNearbyStore.getState().evictStale();
   }, 10_000);
 
   // ── BLE layer ──
@@ -63,21 +65,43 @@ export async function startDiscovery(): Promise<void> {
       try {
         const data = JSON.parse(packetJson) as Record<string, unknown>;
         const broadcaster = bleParseToBroadcaster(deviceId, data, rssi);
+        if (broadcaster) {
+          const isNew = !useNearbyStore.getState().broadcasters.has(broadcaster.id);
+          useNearbyStore.getState().upsertBroadcaster(broadcaster);
+          if (isNew) {
+            scheduleNearbyNotification(broadcaster.track.trackName, broadcaster.track.artistName).catch(() => {});
+          }
+        }
+      } catch { /* malformed JSON */ }
+    });
+  }
+
+  // ── WiFi / mDNS layer ──
+  const { wifiEnabled } = useSettingsStore.getState();
+  if (wifiEnabled) {
+    MDNS.startBrowsing((deviceId, packetJson) => {
+      try {
+        const data = JSON.parse(packetJson) as Record<string, unknown>;
+        const broadcaster = mdnsParseToBroadcaster(deviceId, data);
         if (broadcaster) useNearbyStore.getState().upsertBroadcaster(broadcaster);
       } catch { /* malformed JSON */ }
     });
   }
 
-  // ── GPS layer ──
+  // ── GPS layer (skip if offline) ──
   const { gpsEnabled, radiusKm } = useSettingsStore.getState();
   if (gpsEnabled) {
-    await startGPSDiscovery(radiusKm);
+    const net = await NetInfo.fetch();
+    if (net.isConnected) {
+      await startGPSDiscovery(radiusKm);
+    }
   }
 }
 
 export function stopDiscovery(): void {
   discoveryActive = false;
   BLE.stopScanning();
+  MDNS.stopBrowsing();
   stopGPSDiscovery();
   if (evictionTimer) { clearInterval(evictionTimer); evictionTimer = null; }
 }
@@ -86,29 +110,42 @@ export function stopDiscovery(): void {
 
 export async function startBroadcasting(data: BroadcastData): Promise<void> {
   lastBroadcastData = data;
+  const packetJson = buildPacketJson(data);
 
   // BLE advertising
-  BLE.startAdvertising(buildPacketJson(data));
+  BLE.startAdvertising(packetJson);
 
-  // GPS broadcast write + heartbeat
+  // WiFi / mDNS advertising
+  const { wifiEnabled } = useSettingsStore.getState();
+  if (wifiEnabled) {
+    MDNS.publishService(data.userId, packetJson);
+  }
+
+  // GPS broadcast write + heartbeat (skip if offline)
   const { gpsEnabled } = useSettingsStore.getState();
   if (gpsEnabled) {
-    const loc = await getLocation();
-    if (loc) {
-      lastLocation = loc;
-      const payload = toGeoPayload(data, loc);
-      await writeBroadcast(payload).catch(() => {});
-      startBroadcastHeartbeat(() => {
-        if (!lastBroadcastData || !lastLocation) return null;
-        return toGeoPayload(lastBroadcastData, lastLocation);
-      });
+    const net = await NetInfo.fetch().catch(() => ({ isConnected: false }));
+    if (net.isConnected) {
+      const loc = await getLocation();
+      if (loc) {
+        lastLocation = loc;
+        const payload = toGeoPayload(data, loc);
+        await writeBroadcast(payload).catch(() => {});
+        startBroadcastHeartbeat(() => {
+          if (!lastBroadcastData || !lastLocation) return null;
+          return toGeoPayload(lastBroadcastData, lastLocation);
+        });
+      }
     }
   }
 }
 
 export async function updateBroadcasting(data: BroadcastData): Promise<void> {
   lastBroadcastData = data;
-  BLE.updateBroadcastTrack(buildPacketJson(data));
+  const packetJson = buildPacketJson(data);
+
+  BLE.updateBroadcastTrack(packetJson);
+  MDNS.updateService(packetJson);
 
   // Refresh Firestore doc with new sync packet
   const { gpsEnabled } = useSettingsStore.getState();
@@ -122,6 +159,7 @@ export async function stopBroadcasting(): Promise<void> {
   lastBroadcastData = null;
 
   BLE.stopAdvertising();
+  MDNS.unpublishService();
   stopBroadcastHeartbeat();
   if (userId) await deleteBroadcast(userId).catch(() => {});
 }
@@ -245,6 +283,38 @@ async function requestBLEPermissions(): Promise<boolean> {
       return result === PermissionsAndroid.RESULTS.GRANTED;
     }
   } catch { return false; }
+}
+
+function mdnsParseToBroadcaster(
+  deviceId: string,
+  d: Record<string, unknown>,
+): Broadcaster | null {
+  const trackName = d.trackName as string | undefined;
+  if (!trackName) return null;
+
+  return {
+    id:          (d.userId as string | undefined) ?? deviceId,
+    displayName: (d.displayName as string | undefined) ?? 'Unknown',
+    isAnonymous: (d.isAnonymous as boolean | undefined) ?? false,
+    track: {
+      trackName,
+      artistName:     (d.artistName as string | undefined) ?? '',
+      albumName:      d.albumName      as string | undefined,
+      albumArtUrl:    d.albumArtUrl    as string | undefined,
+      totalDuration:  (d.totalDuration as number | undefined) ?? 0,
+      sourceApp:      (d.sourceApp as NowPlayingTrack['sourceApp'] | undefined) ?? 'unknown',
+      deepLinkUri:    d.deepLinkUri    as string | undefined,
+      spotifyTrackId: d.spotifyTrackId as string | undefined,
+    },
+    sync: {
+      startedAt:       (d.startedAt       as number | undefined) ?? Date.now(),
+      positionAtStart: (d.positionAtStart as number | undefined) ?? 0,
+      isPlaying:       (d.isPlaying       as boolean | undefined) ?? false,
+    },
+    source:         'mdns',
+    distanceMeters: undefined, // same network — distance not meaningful
+    lastSeen:       Date.now(),
+  };
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────

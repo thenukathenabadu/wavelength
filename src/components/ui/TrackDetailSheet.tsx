@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,10 +11,17 @@ import BottomSheet, {
   BottomSheetBackdrop,
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase/firebaseConfig';
 import type { Broadcaster } from '../../types';
 import ProgressBar from './ProgressBar';
 import { currentPosition, formatDuration } from '../../utils/playbackMath';
 import { openInMusicApp } from '../../modules/deepLink/openInMusicApp';
+import {
+  sendFriendRequest,
+  subscribeFriends,
+} from '../../services/firebase/friendsService';
+import { useCurrentUser } from '../../store/authSlice';
 import { colors, typography, spacing, radius, shadows } from '../../theme';
 
 const APP_COLOR: Record<string, string> = {
@@ -39,6 +46,8 @@ const SOURCE_INFO: Record<string, { label: string; color: string; desc: string }
   gps: { label: 'Cloud', color: colors.source.gps, desc: 'Discovered via GPS cloud layer' },
 };
 
+type FriendStatus = 'none' | 'sent' | 'friends';
+
 interface Props {
   broadcaster: Broadcaster | null;
   onClose: () => void;
@@ -47,6 +56,57 @@ interface Props {
 
 export default function TrackDetailSheet({ broadcaster, onClose, sheetRef }: Props) {
   const snapPoints = ['70%'];
+  const currentUser = useCurrentUser();
+  const myUid = currentUser?.uid ?? '';
+
+  // My own username (needed to label the request)
+  const [myUsername, setMyUsername] = useState('');
+  // The broadcaster's username (for sending the request)
+  const [theirUsername, setTheirUsername] = useState('');
+  // Friend status with this broadcaster
+  const [friendStatus, setFriendStatus] = useState<FriendStatus>('none');
+  const [friendLoading, setFriendLoading] = useState(false);
+
+  // Load my username once
+  useEffect(() => {
+    if (!myUid) return;
+    getDoc(doc(db, 'users', myUid)).then((snap) => {
+      if (snap.exists()) setMyUsername(snap.data().username ?? '');
+    }).catch(() => {});
+  }, [myUid]);
+
+  // When broadcaster changes, check friend status and load their username
+  useEffect(() => {
+    if (!broadcaster || broadcaster.isAnonymous || !myUid) {
+      setTheirUsername('');
+      setFriendStatus('none');
+      return;
+    }
+
+    const theirUid = broadcaster.id;
+    if (theirUid === myUid) {
+      setFriendStatus('friends'); // own card — hide button
+      return;
+    }
+
+    setTheirUsername('');
+    setFriendStatus('none');
+
+    // Load their username
+    getDoc(doc(db, 'users', theirUid)).then((snap) => {
+      if (snap.exists()) setTheirUsername(snap.data().username ?? '');
+    }).catch(() => {});
+
+    // Check if already friends
+    getDoc(doc(db, 'users', myUid, 'friends', theirUid)).then((snap) => {
+      if (snap.exists()) setFriendStatus('friends');
+    }).catch(() => {});
+
+    // Check if request already sent
+    getDoc(doc(db, 'users', theirUid, 'friendRequests', myUid)).then((snap) => {
+      if (snap.exists()) setFriendStatus('sent');
+    }).catch(() => {});
+  }, [broadcaster?.id, broadcaster?.isAnonymous, myUid]);
 
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
@@ -63,16 +123,35 @@ export default function TrackDetailSheet({ broadcaster, onClose, sheetRef }: Pro
 
   if (!broadcaster) return null;
 
-  const { track, sync, displayName, isAnonymous, source, distanceMeters } = broadcaster;
+  const { track, sync, displayName, isAnonymous, source, distanceMeters, id: theirUid } = broadcaster;
   const position = currentPosition(sync);
   const appColor = APP_COLOR[track.sourceApp] ?? colors.text.muted;
   const srcInfo = SOURCE_INFO[source];
+  const showAddFriend = !isAnonymous && myUid && theirUid !== myUid;
 
   async function handleOpen() {
     try {
       await openInMusicApp(track);
     } catch {
       // handled inside openInMusicApp
+    }
+  }
+
+  async function handleAddFriend() {
+    if (!myUid || friendStatus !== 'none' || friendLoading) return;
+    setFriendLoading(true);
+    try {
+      await sendFriendRequest(
+        myUid,
+        currentUser?.displayName ?? '',
+        myUsername,
+        theirUid,
+      );
+      setFriendStatus('sent');
+    } catch {
+      // silently fail
+    } finally {
+      setFriendLoading(false);
     }
   }
 
@@ -161,16 +240,40 @@ export default function TrackDetailSheet({ broadcaster, onClose, sheetRef }: Pro
           />
         </View>
 
-        {/* Open in music app CTA */}
-        <TouchableOpacity
-          style={[styles.openButton, { backgroundColor: appColor }]}
-          onPress={handleOpen}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.openButtonText}>
-            {APP_LABEL[track.sourceApp] ?? 'Open Track'}
-          </Text>
-        </TouchableOpacity>
+        {/* Action buttons row */}
+        <View style={styles.actions}>
+          {/* Open in music app */}
+          <TouchableOpacity
+            style={[styles.openButton, { backgroundColor: appColor }, showAddFriend && styles.openButtonCompact]}
+            onPress={handleOpen}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.openButtonText}>
+              {APP_LABEL[track.sourceApp] ?? 'Open Track'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Add Friend — only shown for non-anonymous broadcasters */}
+          {showAddFriend && (
+            <TouchableOpacity
+              style={[
+                styles.friendButton,
+                friendStatus === 'friends' && styles.friendButtonDone,
+                friendStatus === 'sent' && styles.friendButtonSent,
+              ]}
+              onPress={handleAddFriend}
+              disabled={friendStatus !== 'none' || friendLoading}
+              activeOpacity={0.8}
+            >
+              <Text style={[
+                styles.friendButtonText,
+                (friendStatus === 'friends' || friendStatus === 'sent') && styles.friendButtonTextDone,
+              ]}>
+                {friendStatus === 'friends' ? 'Friends' : friendStatus === 'sent' ? 'Request Sent' : friendLoading ? '…' : '+ Add Friend'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         <Text style={styles.disclaimer}>
           Opens the track at the current position in {APP_LABEL[track.sourceApp] ?? 'the app'}.
@@ -311,18 +414,51 @@ const styles = StyleSheet.create({
     color: colors.text.muted,
   },
 
-  // CTA
+  // Actions
+  actions: {
+    gap: spacing[3],
+    marginTop: spacing[2],
+  },
   openButton: {
     borderRadius: radius.lg,
     paddingVertical: spacing[4],
     alignItems: 'center',
-    marginTop: spacing[2],
+  },
+  openButtonCompact: {
+    paddingVertical: spacing[3],
   },
   openButtonText: {
     fontSize: typography.size.base,
     fontWeight: typography.weight.bold,
     color: '#ffffff',
   },
+
+  // Add Friend button
+  friendButton: {
+    borderRadius: radius.lg,
+    paddingVertical: spacing[3],
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.brand.default,
+    backgroundColor: colors.brand.dim,
+  },
+  friendButtonSent: {
+    borderColor: colors.border.default,
+    backgroundColor: 'transparent',
+  },
+  friendButtonDone: {
+    borderColor: colors.border.default,
+    backgroundColor: 'transparent',
+  },
+  friendButtonText: {
+    fontSize: typography.size.base,
+    fontWeight: typography.weight.semibold,
+    color: colors.brand.light,
+  },
+  friendButtonTextDone: {
+    color: colors.text.muted,
+  },
+
   disclaimer: {
     fontSize: typography.size.xs,
     color: colors.text.muted,

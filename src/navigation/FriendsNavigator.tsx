@@ -2,28 +2,22 @@ import React, { useRef, useState, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import BottomSheet from '@gorhom/bottom-sheet';
-import type { RadarStackParamList, Broadcaster } from '../types';
-import RadarScreen from '../screens/radar/RadarScreen';
-import NearbyListScreen from '../screens/radar/NearbyListScreen';
+import type { FriendsStackParamList, Broadcaster } from '../types';
+import FriendsScreen from '../screens/friends/FriendsScreen';
+import SearchUsersScreen from '../screens/friends/SearchUsersScreen';
 import TrackDetailSheet from '../components/ui/TrackDetailSheet';
-import { logListen } from '../services/firebase/historyService';
-import { useCurrentUser } from '../store/authSlice';
 import { colors } from '../theme';
 
-const Stack = createNativeStackNavigator<RadarStackParamList>();
+const Stack = createNativeStackNavigator<FriendsStackParamList>();
 
-export default function RadarNavigator() {
+export default function FriendsNavigator() {
   const sheetRef = useRef<BottomSheet>(null);
   const [selected, setSelected] = useState<Broadcaster | null>(null);
-  const user = useCurrentUser();
 
   const handleSelect = useCallback((broadcaster: Broadcaster) => {
     setSelected(broadcaster);
     sheetRef.current?.expand();
-    if (user?.uid) {
-      logListen(user.uid, broadcaster).catch(() => {});
-    }
-  }, [user]);
+  }, []);
 
   const handleClose = useCallback(() => {
     sheetRef.current?.close();
@@ -39,17 +33,16 @@ export default function RadarNavigator() {
           contentStyle: { backgroundColor: colors.bg.primary },
         }}
       >
-        <Stack.Screen name="RadarScreen" options={{ headerShown: false }}>
-          {() => <RadarScreen onSelectBroadcaster={handleSelect} />}
+        <Stack.Screen name="FriendsHome" options={{ headerShown: false }}>
+          {(props) => <FriendsScreen {...props} onSelectBroadcaster={handleSelect} />}
         </Stack.Screen>
         <Stack.Screen
-          name="NearbyList"
-          component={NearbyListScreen}
-          options={{ title: 'Nearby' }}
+          name="SearchUsers"
+          component={SearchUsersScreen}
+          options={{ title: 'Find Friends' }}
         />
       </Stack.Navigator>
 
-      {/* Sheet lives outside the stack so it overlays everything */}
       <TrackDetailSheet
         broadcaster={selected}
         onClose={handleClose}
@@ -60,8 +53,5 @@ export default function RadarNavigator() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: colors.bg.primary,
-  },
+  root: { flex: 1, backgroundColor: colors.bg.primary },
 });

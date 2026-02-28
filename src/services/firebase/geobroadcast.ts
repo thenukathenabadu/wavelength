@@ -163,8 +163,7 @@ export function subscribeNearbyBroadcasts(
       }
       onUpdate(all);
     }, () => {
-      // Query error (permissions, network) — emit empty rather than crash
-      onUpdate([]);
+      // Network error — keep existing results visible, stale eviction will clean up
     });
 
     unsubs.push(unsub);
@@ -204,6 +203,8 @@ function docToBroadcaster(
     },
     source:         'gps',
     distanceMeters,
+    lat:            d.lat as number,
+    lon:            d.lon as number,
     lastSeen:       Date.now(),
   };
 }

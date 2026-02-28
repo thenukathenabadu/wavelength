@@ -60,6 +60,13 @@
 		<string>youtubemusic</string>
 		<string>podcasts</string>
 	</array>
+	<!-- mDNS/Local Network: required for same-WiFi discovery (Phase 8) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Wavelength discovers listeners on the same WiFi network to show you what people nearby are listening to.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_wavelength._tcp</string>
+	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Wavelength uses Bluetooth to discover what people nearby are listening to and to share your listening with them.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

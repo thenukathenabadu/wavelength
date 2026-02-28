@@ -12,6 +12,7 @@ import com.facebook.react.common.ReleaseLevel
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.wavelength.mediasession.MediaSessionPackage
 import com.wavelength.ble.BLEAdvertiserPackage
+import com.wavelength.service.ForegroundServicePackage
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ExpoReactHostFactory
@@ -25,6 +26,7 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           add(MediaSessionPackage())
           add(BLEAdvertiserPackage())
+          add(ForegroundServicePackage())
         }
     )
   }

@@ -4,6 +4,9 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { MainTabParamList } from '../types';
 import RadarNavigator from './RadarNavigator';
 import BroadcastScreen from '../screens/broadcast/BroadcastScreen';
+import GlobalScreen from '../screens/global/GlobalScreen';
+import InsightsScreen from '../screens/insights/InsightsScreen';
+import FriendsNavigator from './FriendsNavigator';
 import ProfileNavigator from './ProfileNavigator';
 import { colors, typography, spacing, radius } from '../theme';
 
@@ -21,7 +24,7 @@ function TabIcon({ focused, icon, label }: TabIconProps) {
       <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
         <Text style={styles.icon}>{icon}</Text>
       </View>
-      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>
+      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]} numberOfLines={1}>
         {label}
       </Text>
     </View>
@@ -51,7 +54,34 @@ export default function MainTabNavigator() {
         component={BroadcastScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="🎵" label="Broadcast" />
+            <TabIcon focused={focused} icon="🎵" label="Cast" />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Global"
+        component={GlobalScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon focused={focused} icon="🌍" label="Global" />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Friends"
+        component={FriendsNavigator}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon focused={focused} icon="👥" label="Friends" />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Insights"
+        component={InsightsScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon focused={focused} icon="📊" label="Insights" />
           ),
         }}
       />
@@ -79,8 +109,8 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     alignItems: 'center',
-    gap: 4,
-    paddingTop: spacing[2],
+    gap: 3,
+    paddingTop: 4,
   },
   iconWrap: {
     width: 44,

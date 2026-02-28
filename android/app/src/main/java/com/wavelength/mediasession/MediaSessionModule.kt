@@ -29,6 +29,7 @@ class MediaSessionModule(private val reactContext: ReactApplicationContext) :
 
     private var sessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
+    private var sessionCallback: MediaController.Callback? = null
     private var listening = false
 
     // ── getCurrentTrack ────────────────────────────────────────────────────
@@ -72,8 +73,8 @@ class MediaSessionModule(private val reactContext: ReactApplicationContext) :
                 listenerComponent,
             )
 
-            // Emit the current state immediately
-            getActiveController()?.let { emitTrackChange(it) }
+            // Register callback on the already-active controller (e.g. Spotify already playing)
+            getActiveController()?.let { registerCallback(it) }
 
         } catch (e: SecurityException) {
             // Notification Access not granted — silently ignore
@@ -108,15 +109,19 @@ class MediaSessionModule(private val reactContext: ReactApplicationContext) :
     }
 
     private fun registerCallback(controller: MediaController) {
+        // Unregister from previous controller to avoid duplicate callbacks
+        activeController?.let { old -> sessionCallback?.let { old.unregisterCallback(it) } }
+
         activeController = controller
-        controller.registerCallback(object : MediaController.Callback() {
+        sessionCallback = object : MediaController.Callback() {
             override fun onMetadataChanged(metadata: MediaMetadata?) {
                 emitTrackChange(controller)
             }
             override fun onPlaybackStateChanged(state: PlaybackState?) {
                 emitTrackChange(controller)
             }
-        })
+        }
+        controller.registerCallback(sessionCallback!!)
         emitTrackChange(controller)
     }
 
@@ -138,8 +143,14 @@ class MediaSessionModule(private val reactContext: ReactApplicationContext) :
             ?: ""
         val albumName = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM)
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
-        val position = state?.position ?: 0L
         val isPlaying = state?.state == PlaybackState.STATE_PLAYING
+        // Extrapolate live position: state.position is stale, add elapsed time since last update
+        val position = if (state != null && isPlaying) {
+            val elapsed = android.os.SystemClock.elapsedRealtime() - state.lastPositionUpdateTime
+            state.position + (elapsed * state.playbackSpeed).toLong()
+        } else {
+            state?.position ?: 0L
+        }
         val packageName = controller.packageName
 
         return Arguments.createMap().apply {

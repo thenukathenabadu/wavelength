@@ -14,27 +14,32 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../types';
 import { signUp, friendlyAuthError } from '../../services/firebase/authService';
+import { validateUsername } from '../../services/firebase/friendsService';
 import { colors, typography, spacing, radius } from '../../theme';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
 export default function RegisterScreen({ navigation }: Props) {
   const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const usernameRef = useRef<TextInputType>(null);
   const emailRef = useRef<TextInputType>(null);
   const passwordRef = useRef<TextInputType>(null);
 
   async function handleRegister() {
     if (!displayName.trim()) { setError('Enter a display name.'); return; }
+    const usernameErr = validateUsername(username.trim());
+    if (usernameErr) { setError(usernameErr); return; }
     if (!email.trim()) { setError('Enter your email.'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     setError(null);
     setLoading(true);
     try {
-      await signUp(displayName.trim(), email.trim(), password);
+      await signUp(displayName.trim(), username.trim().toLowerCase(), email.trim(), password);
       // RootNavigator's onAuthStateChanged fires automatically — no manual navigation needed
     } catch (e: unknown) {
       const code = (e as { code?: string }).code ?? '';
@@ -77,10 +82,28 @@ export default function RegisterScreen({ navigation }: Props) {
               autoCapitalize="words"
               textContentType="name"
               returnKeyType="next"
-              onSubmitEditing={() => emailRef.current?.focus()}
+              onSubmitEditing={() => usernameRef.current?.focus()}
               selectionColor={colors.brand.default}
             />
             <Text style={styles.hint}>You can go anonymous per-broadcast whenever you want.</Text>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Username</Text>
+            <TextInput
+              ref={usernameRef}
+              style={styles.input}
+              placeholder="e.g. asiri_music"
+              placeholderTextColor={colors.text.muted}
+              value={username}
+              onChangeText={(t) => setUsername(t.toLowerCase())}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+              onSubmitEditing={() => emailRef.current?.focus()}
+              selectionColor={colors.brand.default}
+            />
+            <Text style={styles.hint}>3–20 chars, lowercase letters, numbers, underscores.</Text>
           </View>
 
           <View style={styles.fieldGroup}>

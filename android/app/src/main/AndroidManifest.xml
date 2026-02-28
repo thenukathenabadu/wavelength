@@ -2,6 +2,8 @@
   xmlns:tools="http://schemas.android.com/tools">
 
   <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
   <!-- MediaSession: read active media sessions from any app.
        User must grant Notification Access in system settings once. -->
   <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
@@ -16,7 +18,11 @@
   <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" tools:targetApi="s"/>
   <!-- Location: required for BLE scanning on Android < 12, and always for GPS discovery -->
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+  <!-- Notifications: required on Android 13+ for posting notifications -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+  <!-- mDNS/NSD: required for multicast-based local network discovery (Phase 8) -->
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
   <uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>
   <!-- OPTIONAL PERMISSIONS, REMOVE WHATEVER YOU DO NOT NEED -->
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
@@ -48,12 +54,25 @@
   </queries>
 
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="false" android:theme="@style/AppTheme" android:supportsRtl="true">
+    <!-- TODO: Replace with real Google Maps API key (Maps SDK for Android) -->
+    <meta-data android:name="com.google.android.geo.API_KEY" android:value="YOUR_GOOGLE_MAPS_API_KEY"/>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
     </activity>
+    <!-- Foreground service — keeps process alive while broadcasting (screen lock safe) -->
+    <service
+      android:name=".service.WavelengthForegroundService"
+      android:foregroundServiceType="connectedDevice"
+      android:exported="false"/>
+
+    <!-- Stop Broadcasting receiver — handles notification action tap -->
+    <receiver
+      android:name=".service.StopBroadcastReceiver"
+      android:exported="false"/>
+
     <!-- NotificationListenerStub — required for MediaSessionManager.getActiveSessions() -->
     <service
       android:name=".mediasession.NotificationListenerStub"

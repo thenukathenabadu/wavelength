@@ -6,13 +6,14 @@ import {
   onAuthStateChanged,
   type User,
 } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from './firebaseConfig';
+import { auth } from './firebaseConfig';
+import { reserveUsername } from './friendsService';
 
 // ─── Sign Up ──────────────────────────────────────────────────────────────────
 
 export async function signUp(
   displayName: string,
+  username: string,
   email: string,
   password: string,
 ): Promise<User> {
@@ -22,16 +23,8 @@ export async function signUp(
   // Set display name on the Auth profile
   await updateProfile(user, { displayName });
 
-  // Write user doc to Firestore /users/{uid}
-  await setDoc(doc(db, 'users', user.uid), {
-    displayName,
-    email,
-    createdAt: serverTimestamp(),
-    preferences: {
-      defaultRadius: 100,
-      discoveryMode: 'all',
-    },
-  });
+  // Atomically write user doc + reserve username in Firestore
+  await reserveUsername(user.uid, username, displayName, email);
 
   return user;
 }
@@ -67,6 +60,7 @@ export function friendlyAuthError(code: string): string {
     'auth/weak-password': 'Password must be at least 6 characters.',
     'auth/too-many-requests': 'Too many attempts. Try again in a few minutes.',
     'auth/network-request-failed': 'Network error. Check your connection.',
+    'username-taken': 'That username is already taken. Try another.',
   };
   return map[code] ?? 'Something went wrong. Please try again.';
 }

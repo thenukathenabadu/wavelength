@@ -26,6 +26,8 @@ import {
   type NowPlayingResult,
 } from '../../modules/nowPlaying/NowPlayingModule';
 import * as ProximityManager from '../../services/proximity/ProximityManager';
+import { startForegroundService, stopForegroundService, subscribeToStopAction } from '../../modules/foregroundService/ForegroundServiceModule';
+import { logBroadcastStart, logBroadcastEnd } from '../../services/firebase/historyService';
 import { useCurrentUser } from '../../store/authSlice';
 import type { NowPlayingTrack, PlaybackSyncPacket } from '../../types';
 
@@ -55,6 +57,9 @@ export default function BroadcastScreen() {
   const [manualEntryVisible, setManualEntryVisible] = useState(false);
   const [notificationAccessGranted, setNotificationAccessGranted] = useState(true);
 
+  // Track active broadcast doc for history logging
+  const broadcastDoc = useRef<{ docId: string; startedAt: number } | null>(null);
+
   // Android: check notification access and re-check when app foregrounds
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -75,6 +80,13 @@ export default function BroadcastScreen() {
     return () => sub.remove();
   }, []);
 
+  // Listen for "Stop Broadcasting" tapped from the notification
+  useEffect(() => {
+    return subscribeToStopAction(() => {
+      setMode('off');
+    });
+  }, [setMode]);
+
   // Subscribe to now-playing updates
   useEffect(() => {
     let stopFn: (() => void) | null = null;
@@ -93,12 +105,20 @@ export default function BroadcastScreen() {
     return () => stopFn?.();
   }, []);
 
-  // Sync broadcast state with ProximityManager whenever track or mode changes
+  // Sync broadcast state with ProximityManager, foreground service, and history
   useEffect(() => {
     if (!isBroadcasting || !result) {
       ProximityManager.stopBroadcasting();
+      stopForegroundService();
+      // Log broadcast end
+      if (broadcastDoc.current && user?.uid) {
+        const durationSecs = (Date.now() - broadcastDoc.current.startedAt) / 1000;
+        logBroadcastEnd(user.uid, broadcastDoc.current.docId, durationSecs).catch(() => {});
+        broadcastDoc.current = null;
+      }
       return;
     }
+
     const data: ProximityManager.BroadcastData = {
       userId:      user?.uid ?? 'anon',
       displayName: mode === 'anonymous' ? 'Anonymous' : (user?.displayName ?? 'Anonymous'),
@@ -107,12 +127,36 @@ export default function BroadcastScreen() {
       sync:        result.sync,
     };
     ProximityManager.startBroadcasting(data);
+    startForegroundService(result.track.trackName, result.track.artistName);
+
+    // Log history: end previous session if track changed, start new
+    if (user?.uid) {
+      if (broadcastDoc.current) {
+        const durationSecs = (Date.now() - broadcastDoc.current.startedAt) / 1000;
+        logBroadcastEnd(user.uid, broadcastDoc.current.docId, durationSecs).catch(() => {});
+        broadcastDoc.current = null;
+      }
+      logBroadcastStart(user.uid, result.track).then((docId) => {
+        broadcastDoc.current = { docId, startedAt: Date.now() };
+      }).catch(() => {});
+    }
   }, [isBroadcasting, result, mode, user]);
 
   const track = result?.track ?? null;
   const sync = result?.sync ?? null;
   const appColor = APP_COLOR[track?.sourceApp ?? 'unknown'] ?? colors.text.muted;
-  const positionSecs = sync ? currentPosition(sync) : 0;
+
+  // Live position text — ref keeps latest sync without restarting the interval
+  const syncRef = useRef(sync);
+  syncRef.current = sync;
+  const [positionSecs, setPositionSecs] = useState(() => sync ? currentPosition(sync) : 0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const s = syncRef.current;
+      setPositionSecs(s ? currentPosition(s) : 0);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Broadcast ring animation
   const ringAnim = useRef(new Animated.Value(0)).current;
