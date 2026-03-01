@@ -17,10 +17,8 @@ import type { Broadcaster } from '../../types';
 import ProgressBar from './ProgressBar';
 import { currentPosition, formatDuration } from '../../utils/playbackMath';
 import { openInMusicApp } from '../../modules/deepLink/openInMusicApp';
-import {
-  sendFriendRequest,
-  subscribeFriends,
-} from '../../services/firebase/friendsService';
+import { sendFriendRequest } from '../../services/firebase/friendsService';
+import { logListen } from '../../services/firebase/historyService';
 import { useCurrentUser } from '../../store/authSlice';
 import { colors, typography, spacing, radius, shadows } from '../../theme';
 
@@ -75,12 +73,17 @@ export default function TrackDetailSheet({ broadcaster, onClose, sheetRef }: Pro
     }).catch(() => {});
   }, [myUid]);
 
-  // When broadcaster changes, check friend status and load their username
+  // When broadcaster changes, log the listen and check friend status
   useEffect(() => {
     if (!broadcaster || broadcaster.isAnonymous || !myUid) {
       setTheirUsername('');
       setFriendStatus('none');
       return;
+    }
+
+    // Log this discovery to listen history
+    if (myUid && broadcaster.id !== myUid) {
+      logListen(myUid, broadcaster).catch(() => {});
     }
 
     const theirUid = broadcaster.id;
