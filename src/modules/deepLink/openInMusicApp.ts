@@ -65,6 +65,52 @@ function deepLinkUriToWebUrl(uri: string, sourceApp: string): string | null {
 }
 
 /**
+ * Apps the user can search in from the TrackDetailSheet.
+ * 'youtube' is kept separate from 'youtube_music' — different apps.
+ */
+export const SEARCH_TARGETS = ['spotify', 'youtube_music', 'youtube'] as const;
+export type SearchTarget = typeof SEARCH_TARGETS[number];
+
+export const SEARCH_LABEL: Record<SearchTarget, string> = {
+  spotify:       'Spotify',
+  youtube_music: 'YT Music',
+  youtube:       'YouTube',
+};
+
+/**
+ * Open a track in a specific target app by searching trackName + artistName.
+ * If targetApp === track.sourceApp, delegates to openInMusicApp() which opens
+ * at the sync position (the preferred flow). Otherwise uses a search deep link
+ * with a web URL fallback so any installed app or browser can handle it.
+ */
+export async function openTrackInAppWithSearch(
+  track: NowPlayingTrack,
+  targetApp: SearchTarget,
+): Promise<void> {
+  if ((targetApp as string) === track.sourceApp) {
+    return openInMusicApp(track);
+  }
+
+  const query = encodeURIComponent(`${track.trackName} ${track.artistName}`);
+
+  const deepLinks: Record<SearchTarget, string> = {
+    spotify:       `spotify:search:${query}`,
+    youtube_music: `youtubemusic://music.youtube.com/search?q=${query}`,
+    youtube:       `vnd.youtube://results?search_query=${query}`,
+  };
+
+  const webFallbacks: Record<SearchTarget, string> = {
+    spotify:       `https://open.spotify.com/search/${query}`,
+    youtube_music: `https://music.youtube.com/search?q=${query}`,
+    youtube:       `https://www.youtube.com/results?search_query=${query}`,
+  };
+
+  const deepLink = deepLinks[targetApp];
+  const canOpen = await Linking.canOpenURL(deepLink).catch(() => false);
+  await Linking.openURL(canOpen ? deepLink : webFallbacks[targetApp]);
+}
+
+/**
  * Build a Spotify deep link URI from a track ID.
  */
 export function spotifyDeepLink(trackId: string): string {

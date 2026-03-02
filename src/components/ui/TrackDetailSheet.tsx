@@ -16,7 +16,12 @@ import { db } from '../../services/firebase/firebaseConfig';
 import type { Broadcaster } from '../../types';
 import ProgressBar from './ProgressBar';
 import { currentPosition, formatDuration } from '../../utils/playbackMath';
-import { openInMusicApp } from '../../modules/deepLink/openInMusicApp';
+import {
+  openInMusicApp,
+  openTrackInAppWithSearch,
+  SEARCH_TARGETS,
+  SEARCH_LABEL,
+} from '../../modules/deepLink/openInMusicApp';
 import { sendFriendRequest } from '../../services/firebase/friendsService';
 import { logListen } from '../../services/firebase/historyService';
 import { useCurrentUser } from '../../store/authSlice';
@@ -245,7 +250,7 @@ export default function TrackDetailSheet({ broadcaster, onClose, sheetRef }: Pro
 
         {/* Action buttons row */}
         <View style={styles.actions}>
-          {/* Open in music app */}
+          {/* Open in source app (at sync position) */}
           <TouchableOpacity
             style={[styles.openButton, { backgroundColor: appColor }, showAddFriend && styles.openButtonCompact]}
             onPress={handleOpen}
@@ -255,6 +260,25 @@ export default function TrackDetailSheet({ broadcaster, onClose, sheetRef }: Pro
               {APP_LABEL[track.sourceApp] ?? 'Open Track'}
             </Text>
           </TouchableOpacity>
+
+          {/* Secondary: search in other apps */}
+          <View style={styles.altRow}>
+            <Text style={styles.altLabel}>Also open in</Text>
+            <View style={styles.altChips}>
+              {SEARCH_TARGETS
+                .filter((app) => app !== track.sourceApp)
+                .map((app) => (
+                  <TouchableOpacity
+                    key={app}
+                    style={styles.altChip}
+                    onPress={() => openTrackInAppWithSearch(track, app).catch(() => {})}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.altChipText}>{SEARCH_LABEL[app]}</Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
+          </View>
 
           {/* Add Friend — only shown for non-anonymous broadcasters */}
           {showAddFriend && (
@@ -279,7 +303,7 @@ export default function TrackDetailSheet({ broadcaster, onClose, sheetRef }: Pro
         </View>
 
         <Text style={styles.disclaimer}>
-          Opens the track at the current position in {APP_LABEL[track.sourceApp] ?? 'the app'}.
+          Source app opens at current position. Other apps search by track name.
         </Text>
       </BottomSheetView>
     </BottomSheet>
@@ -460,6 +484,34 @@ const styles = StyleSheet.create({
   },
   friendButtonTextDone: {
     color: colors.text.muted,
+  },
+
+  // Alt app chips
+  altRow: {
+    gap: spacing[1],
+  },
+  altLabel: {
+    fontSize: typography.size.xs,
+    color: colors.text.muted,
+    fontWeight: typography.weight.medium,
+  },
+  altChips: {
+    flexDirection: 'row',
+    gap: spacing[2],
+  },
+  altChip: {
+    flex: 1,
+    paddingVertical: spacing[2],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    alignItems: 'center',
+    backgroundColor: colors.bg.card,
+  },
+  altChipText: {
+    fontSize: typography.size.xs,
+    fontWeight: typography.weight.semibold,
+    color: colors.text.secondary,
   },
 
   disclaimer: {

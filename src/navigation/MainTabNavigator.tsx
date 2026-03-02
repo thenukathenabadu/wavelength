@@ -9,6 +9,7 @@ import InsightsScreen from '../screens/insights/InsightsScreen';
 import FriendsNavigator from './FriendsNavigator';
 import ProfileNavigator from './ProfileNavigator';
 import { colors, typography, spacing, radius } from '../theme';
+import { useFriendDiscovery } from '../hooks/useFriendDiscovery';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -32,6 +33,8 @@ function TabIcon({ focused, icon, label }: TabIconProps) {
 }
 
 export default function MainTabNavigator() {
+  useFriendDiscovery();
+
   return (
     <Tab.Navigator
       screenOptions={{
